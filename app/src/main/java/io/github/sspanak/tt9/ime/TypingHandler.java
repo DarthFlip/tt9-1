@@ -41,6 +41,13 @@ public abstract class TypingHandler extends KeyPadHandler {
 	@NonNull protected ArrayList<Integer> allowedInputModes = new ArrayList<>();
 	@NonNull protected InputMode mInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
 
+	/**
+	 * Position-indexed buffer shared between the physical 12-key and the on-screen QWERTY.
+	 * Populated only while the QWERTY layout is active. Lock state informs the stem passed to
+	 * ModeWords so the two input paths agree on a single in-progress word.
+	 */
+	@NonNull protected final ComposingWord composingWord = new ComposingWord();
+
 	// language
 	protected ArrayList<Integer> mEnabledLanguages;
 	protected Language mLanguage;
@@ -143,7 +150,57 @@ public abstract class TypingHandler extends KeyPadHandler {
 		}
 		suggestionOps.cancelDelayedAccept();
 		mInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
+		composingWord.clear();
 		setInputField(null);
+	}
+
+
+	/**
+	 * Called when the user taps a letter on the on-screen QWERTY. Appends a locked letter to the
+	 * composing buffer and feeds the resulting stem into ModeWords so its existing dictionary
+	 * filter narrows the suggestions automatically. Falls back to {@link #onText} for
+	 * non-alphabetic input (punctuation, space), which commits the pending word.
+	 *
+	 * Only the contiguous-prefix case is wired: as long as the user stays on the QWERTY layout,
+	 * each new letter extends the prefix. Mixing physical-keypad digits in between currently
+	 * blows away the trailing digit positions (setWordStem recomputes digitSequence from the
+	 * locked prefix). That case is documented as a known limitation of the first integration.
+	 */
+	public boolean onQwertyLetter(@Nullable String letter) {
+		if (letter == null || letter.length() != 1) {
+			return onText(letter == null ? "" : letter, false);
+		}
+		char c = letter.charAt(0);
+		if (!Character.isLetter(c)) {
+			return onText(letter, false);
+		}
+		if (!InputModeKind.isPredictive(mInputMode)) {
+			return onText(letter, false);
+		}
+
+		suggestionOps.cancelDelayedAccept();
+		composingWord.appendLockedLetter(c);
+
+		final String newStem = composingWord.getLockedPrefix();
+		if (newStem.isEmpty() || !mInputMode.setWordStem(newStem, true)) {
+			// setWordStem refused the stem (invalid chars for the active language) — fall back to
+			// a plain letter commit so the user still sees their input.
+			composingWord.removeLast();
+			return onText(letter, false);
+		}
+
+		getSuggestions(Math.random(), null, null);
+		return true;
+	}
+
+
+	/**
+	 * Called when the user taps backspace while on the QWERTY layout. Trims the composing buffer
+	 * and walks tt9's usual backspace pipeline so suggestions + digitSequence stay in sync.
+	 */
+	public boolean onQwertyBackspace() {
+		composingWord.removeLast();
+		return onBackspace(0);
 	}
 
 
@@ -154,6 +211,10 @@ public abstract class TypingHandler extends KeyPadHandler {
 		if (InputModeKind.isPassthrough(mInputMode)) {
 			return false;
 		}
+
+		// Keep the shared composing buffer in lockstep with ModeWords' digitSequence.
+		// No-op when the QWERTY layout never populated it.
+		composingWord.removeLast();
 
 		mindReader.clearContext();
 
@@ -282,6 +343,10 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 		mInputMode.determineNextWordTextCase(surroundingChars[0], -1);
 		updateShiftState(surroundingChars[0], false, false);
+
+		// A whole word went to the text field — whatever was in the shared composing buffer is
+		// now stale.
+		composingWord.clear();
 
 		return true;
 	}

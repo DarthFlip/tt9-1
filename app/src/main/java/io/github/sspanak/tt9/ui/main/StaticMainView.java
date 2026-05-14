@@ -32,6 +32,8 @@ public class StaticMainView {
 			return new MainLayoutTray(tt9);
 		} else if (settings.isMainLayoutStealth() && !(main instanceof MainLayoutStealth)) {
 			return new MainLayoutStealth(tt9);
+		} else if (settings.isMainLayoutQwerty() && (main == null || !main.getClass().equals(MainLayoutQwerty.class))) {
+			return new MainLayoutQwerty(tt9);
 		}
 
 		return null;

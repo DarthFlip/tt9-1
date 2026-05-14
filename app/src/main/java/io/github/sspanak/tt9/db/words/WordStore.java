@@ -121,6 +121,20 @@ public class WordStore extends BaseSyncStore {
 	}
 
 
+	/**
+	 * Returns every factory-dictionary word (word + frequency) for the given language. Intended
+	 * for consumers that need the full vocabulary without a digit-sequence filter — e.g. the
+	 * glide-typing classifier. Safe to call on a worker thread.
+	 */
+	@NonNull
+	public WordList getAllWords(Language language) {
+		if (language == null || language instanceof NullLanguage || !checkOrNotify()) {
+			return new WordList();
+		}
+		return readOps.getAllWords(sqlite.getDb(), language);
+	}
+
+
 	@NonNull public ArrayList<CustomWord> getSimilarCustom(String wordFilter, int maxWords) {
 		return checkOrNotify() ? readOps.getCustomWords(sqlite.getDb(), wordFilter, maxWords) : new ArrayList<>();
 	}

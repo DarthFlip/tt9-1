@@ -670,4 +670,58 @@
 		<item name="android:layout_margin">16dp</item>
 		<item name="android:layout_gravity">end</item>
 	</style>
+
+
+	<!--*******************************************
+		Qwerty (on-screen full keyboard + swipe)
+	*******************************************-->
+
+	<style name="TTheme.Qwerty.Row" parent="">
+		<item name="android:layout_width">match_parent</item>
+		<item name="android:layout_height">@dimen/qwerty_row_height</item>
+		<item name="android:orientation">horizontal</item>
+	</style>
+
+	<style name="TTheme.Qwerty.Key" parent="TTheme.MainSmall.Key">
+		<item name="android:layout_width">0dp</item>
+		<item name="android:layout_weight">1</item>
+		<item name="android:layout_marginLeft">2dp</item>
+		<item name="android:layout_marginRight">2dp</item>
+		<item name="android:layout_marginTop">2dp</item>
+		<item name="android:layout_marginBottom">2dp</item>
+		<item name="android:textSize">@dimen/qwerty_key_text_size</item>
+		<item name="android:minWidth">0dp</item>
+		<item name="android:minHeight">0dp</item>
+		<item name="android:paddingLeft">0dp</item>
+		<item name="android:paddingRight">0dp</item>
+		<item name="android:insetLeft">0dp</item>
+		<item name="android:insetRight">0dp</item>
+		<item name="iconPadding">0dp</item>
+		<!-- MaterialButton's default ripple is too subtle on 58px keys; overlay a visible flash. -->
+		<item name="android:foreground">@drawable/qwerty_key_press_overlay</item>
+	</style>
+
+	<style name="TTheme.Qwerty.Key.Fn" parent="TTheme.Qwerty.Key">
+		<item name="backgroundTint">?attr/colorKeyFnBackground</item>
+		<item name="android:textColor">?attr/colorKeyFnText</item>
+		<item name="drawableTint">?attr/colorKeyFnText</item>
+		<item name="rippleColor">?attr/colorKeyFnRipple</item>
+	</style>
+
+	<style name="TTheme.Qwerty.Key.Space" parent="TTheme.Qwerty.Key">
+		<item name="backgroundTint">?attr/colorKeyFnBackground</item>
+	</style>
+
+	<style name="TTheme.Qwerty.Key.Ok" parent="TTheme.Qwerty.Key">
+		<item name="android:textColor">?attr/colorKeyOkText</item>
+		<item name="backgroundTint">?attr/colorKeyOkBackground</item>
+		<item name="rippleColor">?attr/colorKeyOkRipple</item>
+	</style>
+
+	<style name="TTheme.Qwerty.HalfSpacer" parent="">
+		<item name="android:layout_width">0dp</item>
+		<item name="android:layout_height">match_parent</item>
+		<item name="android:layout_weight">0.5</item>
+	</style>
+
 </resources>

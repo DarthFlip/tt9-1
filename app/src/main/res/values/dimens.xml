@@ -64,4 +64,8 @@
 	<dimen name="numpad_suggestion_text_size">17sp</dimen>
 	<dimen name="numpad_suggestion_height">40sp</dimen>
 	<dimen name="numpad_suggestion_min_width">36sp</dimen>
+
+	<!-- Qwerty on-screen keyboard -->
+	<dimen name="qwerty_row_height">46dp</dimen>
+	<dimen name="qwerty_key_text_size">18sp</dimen>
 </resources>

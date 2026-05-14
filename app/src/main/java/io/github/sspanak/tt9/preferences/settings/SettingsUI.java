@@ -30,6 +30,7 @@ public class SettingsUI extends SettingsTyping {
 	public final static int LAYOUT_SMALL = 3;
 	public final static int LAYOUT_NUMPAD = 4;
 	public final static int LAYOUT_CLASSIC = 5;
+	public final static int LAYOUT_QWERTY = 6;
 
 	private final int DEFAULT_LAYOUT;
 	private final int DEFAULT_LARGE_LAYOUT;
@@ -179,7 +180,7 @@ public class SettingsUI extends SettingsTyping {
 	}
 
 	public void setMainViewLayout(int layout) {
-		if (layout != LAYOUT_STEALTH && layout != LAYOUT_TRAY && layout != LAYOUT_SMALL && layout != LAYOUT_NUMPAD && layout != LAYOUT_CLASSIC) {
+		if (layout != LAYOUT_STEALTH && layout != LAYOUT_TRAY && layout != LAYOUT_SMALL && layout != LAYOUT_NUMPAD && layout != LAYOUT_CLASSIC && layout != LAYOUT_QWERTY) {
 			Logger.w(getClass().getSimpleName(), "Ignoring invalid main view layout: " + layout);
 			return;
 		}
@@ -216,4 +217,5 @@ public class SettingsUI extends SettingsTyping {
 	public boolean isMainLayoutTray() { return getMainViewLayout() == LAYOUT_TRAY; }
 	public boolean isMainLayoutSmall() { return getMainViewLayout() == LAYOUT_SMALL; }
 	public boolean isMainLayoutStealth() { return getMainViewLayout() == LAYOUT_STEALTH; }
+	public boolean isMainLayoutQwerty() { return getMainViewLayout() == LAYOUT_QWERTY; }
 }

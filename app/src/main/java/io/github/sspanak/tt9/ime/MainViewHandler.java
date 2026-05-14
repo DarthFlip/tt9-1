@@ -187,6 +187,22 @@ abstract public class MainViewHandler extends HotkeyHandler {
 		}
 	}
 
+	/**
+	 * Label for the input mode the keyboard would switch to next. Used by the on-screen QWERTY's
+	 * mode-switch key to preview the upcoming mode without mutating state.
+	 */
+	@NonNull
+	public String getNextInputModeName() {
+		switch (nextInputMode()) {
+			case InputMode.MODE_HIRAGANA: return "あ";
+			case InputMode.MODE_KATAKANA: return "ア";
+			case InputMode.MODE_PREDICTIVE:
+				return mLanguage != null ? mLanguage.getCode().toUpperCase(mLanguage.getLocale()) : "T9";
+			case InputMode.MODE_123: return "123";
+			default: return getABCString();
+		}
+	}
+
 
 	public int getTextCase() {
 		return mInputMode.getTextCase();

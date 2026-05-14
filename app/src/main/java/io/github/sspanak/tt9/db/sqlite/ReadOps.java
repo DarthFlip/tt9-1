@@ -170,6 +170,26 @@ public class ReadOps {
 
 
 	/**
+	 * Streams every factory-dictionary word + frequency for the given language. Used by callers
+	 * that need the entire vocabulary without a digit-sequence filter (e.g. the glide-typing
+	 * classifier). Returns an empty list if the language has no words table yet (import pending).
+	 */
+	@NonNull
+	public WordList getAllWords(@NonNull SQLiteDatabase db, @NonNull Language language) {
+		WordList words = new WordList();
+		try (Cursor cursor = db.query(Tables.getWords(language.getId()), new String[]{"word", "frequency"}, null, null, null, null, null)) {
+			words.ensureCapacity(cursor.getCount());
+			while (cursor.moveToNext()) {
+				words.add(cursor.getString(0), cursor.getInt(1), 0);
+			}
+		} catch (Exception e) {
+			Logger.w(LOG_TAG, "getAllWords failed for language " + language.getId() + ": " + e.getMessage());
+		}
+		return words;
+	}
+
+
+	/**
 	 * Gets all words as a ready-to-export CSV string. If the language is null or customWords is true,
 	 * only custom words are returned.
 	 */

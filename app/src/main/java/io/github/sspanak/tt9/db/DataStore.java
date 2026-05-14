@@ -14,6 +14,7 @@ import java.util.function.Consumer;
 
 import io.github.sspanak.tt9.db.entities.AddWordResult;
 import io.github.sspanak.tt9.db.entities.CustomWord;
+import io.github.sspanak.tt9.db.entities.WordList;
 import io.github.sspanak.tt9.db.wordPairs.WordPairStore;
 import io.github.sspanak.tt9.db.words.WordStore;
 import io.github.sspanak.tt9.languages.Language;
@@ -126,6 +127,16 @@ public class DataStore {
 			getWordsCancellationSignal.cancel();
 			Logger.e(LOG_TAG, "Word loading timed out after " + SettingsStore.SLOW_QUERY_TIMEOUT + " ms.");
 		}
+	}
+
+
+	/**
+	 * Asynchronously delivers every factory-dictionary word (word + frequency) for the language.
+	 * Callback fires on the DataStore executor thread — post back to the main thread before touching
+	 * UI-facing state.
+	 */
+	public static void getAllWords(Consumer<WordList> dataHandler, Language language) {
+		runInThread(() -> dataHandler.accept(words.getAllWords(language)));
 	}
 
 

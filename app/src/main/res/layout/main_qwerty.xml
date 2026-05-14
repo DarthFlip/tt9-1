@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools"
+	style="@style/TTheme.FullScreenContainer"
+	tools:ignore="HardcodedText,KeyboardInaccessibleWidget">
+
+	<LinearLayout style="@style/TTheme.FullScreenContainer.SideBumper" android:id="@+id/bumper_left">
+		<View android:id="@+id/bumper_left_top_separator" style="@style/TTheme.Bumper.TopSeparator" />
+	</LinearLayout>
+
+	<LinearLayout style="@style/TTheme.MainSmall" android:id="@+id/keyboard_container">
+
+		<View style="@style/TTheme.Keyboard.TopSeparator" />
+
+		<include layout="@layout/panel_small_status_bar" />
+
+		<io.github.sspanak.tt9.ime.swipe.SwipeableKeyboardContainer
+			android:id="@+id/qwerty_keys_container"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:orientation="vertical">
+
+			<!-- Row 1: q w e r t y u i o p -->
+			<LinearLayout style="@style/TTheme.Qwerty.Row">
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="q" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="w" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="e" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="r" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="t" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="y" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="u" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="i" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="o" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="p" />
+			</LinearLayout>
+
+			<!-- Row 2: a s d f g h j k l (indented by half a key) -->
+			<LinearLayout style="@style/TTheme.Qwerty.Row">
+				<View style="@style/TTheme.Qwerty.HalfSpacer" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="a" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="s" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="d" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="f" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="g" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="h" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="j" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="k" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="l" />
+				<View style="@style/TTheme.Qwerty.HalfSpacer" />
+			</LinearLayout>
+
+			<!-- Row 3: shift + z x c v b n m + backspace (all weight 1, visually centered) -->
+			<LinearLayout style="@style/TTheme.Qwerty.Row">
+				<RelativeLayout
+					android:layout_width="0dp"
+					android:layout_height="match_parent"
+					android:layout_weight="1"
+					android:layout_marginLeft="2dp"
+					android:layout_marginRight="2dp">
+					<io.github.sspanak.tt9.ui.main.keys.SoftKeyShift
+						android:id="@+id/soft_key_qwerty_shift"
+						style="@style/TTheme.Qwerty.Key.Fn"
+						android:layout_width="match_parent"
+						android:layout_height="match_parent"
+						android:layout_margin="0dp"
+						android:layout_weight="0" />
+					<include layout="@layout/key_overlay_icons" />
+				</RelativeLayout>
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="z" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="x" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="c" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="v" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="b" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="n" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="m" />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyBackspace
+					android:id="@+id/soft_key_qwerty_backspace"
+					style="@style/TTheme.Qwerty.Key.Fn" />
+			</LinearLayout>
+
+			<!-- Row 4: input-type (next mode) | , | space (hold = lang) | . | enter icon -->
+			<LinearLayout style="@style/TTheme.Qwerty.Row">
+				<RelativeLayout
+					android:layout_width="0dp"
+					android:layout_height="match_parent"
+					android:layout_weight="1.5"
+					android:layout_marginLeft="2dp"
+					android:layout_marginRight="2dp">
+					<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyInputMode
+						android:id="@+id/soft_key_qwerty_lf4"
+						style="@style/TTheme.Qwerty.Key.Fn"
+						android:layout_width="match_parent"
+						android:layout_height="match_parent"
+						android:layout_margin="0dp"
+						android:layout_weight="0" />
+				</RelativeLayout>
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter
+					style="@style/TTheme.Qwerty.Key"
+					android:text="," />
+				<RelativeLayout
+					android:layout_width="0dp"
+					android:layout_height="match_parent"
+					android:layout_weight="4"
+					android:layout_marginLeft="2dp"
+					android:layout_marginRight="2dp">
+					<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertySpace
+						android:id="@+id/soft_key_qwerty_space"
+						style="@style/TTheme.Qwerty.Key.Space"
+						android:layout_width="match_parent"
+						android:layout_height="match_parent"
+						android:layout_margin="0dp"
+						android:layout_weight="0"
+						android:text=" " />
+					<include layout="@layout/key_overlay_lf4" />
+				</RelativeLayout>
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter
+					style="@style/TTheme.Qwerty.Key"
+					android:text="." />
+				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyOk
+					android:id="@+id/soft_key_qwerty_ok"
+					style="@style/TTheme.Qwerty.Key.Ok"
+					android:layout_weight="1.5"
+					android:drawableLeft="@drawable/ic_enter"
+					android:drawablePadding="0dp" />
+			</LinearLayout>
+
+		</io.github.sspanak.tt9.ime.swipe.SwipeableKeyboardContainer>
+
+		<include
+			layout="@layout/panel_extra"
+			android:id="@+id/main_panel_extra"
+			android:visibility="gone" />
+	</LinearLayout>
+
+	<LinearLayout style="@style/TTheme.FullScreenContainer.SideBumper" android:id="@+id/bumper_right">
+		<View android:id="@+id/bumper_right_top_separator" style="@style/TTheme.Bumper.TopSeparator" />
+	</LinearLayout>
+
+</LinearLayout>

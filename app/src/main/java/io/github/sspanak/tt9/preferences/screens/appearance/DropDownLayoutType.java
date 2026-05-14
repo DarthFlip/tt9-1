@@ -35,6 +35,7 @@ public class DropDownLayoutType extends EnhancedDropDownPreference {
 		add(SettingsUI.LAYOUT_SMALL, R.string.pref_layout_small);
 		add(SettingsUI.LAYOUT_CLASSIC, R.string.pref_layout_classic);
 		add(SettingsUI.LAYOUT_NUMPAD, R.string.pref_layout_numpad);
+		add(SettingsUI.LAYOUT_QWERTY, R.string.pref_layout_qwerty);
 		commitOptions();
 		super.setValue(String.valueOf(settings.getMainViewLayout()));
 
