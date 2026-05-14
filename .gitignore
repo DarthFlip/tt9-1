@@ -42,3 +42,12 @@ t9build.properties
 proguard/
 *.sublime-project
 *.sublime-workspace
+
+# Kotlin compiler/daemon scratch
+.kotlin/
+
+# Local Gradle daemon JDK pin (per-machine)
+gradle/gradle-daemon-jvm.properties
+
+# Claude Code local overrides
+.claude/settings.local.json
