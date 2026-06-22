@@ -16,15 +16,39 @@ import io.github.sspanak.tt9.languages.Language
 class Tt9WordProvider private constructor() : WordProvider {
 	@Volatile private var words: List<String> = emptyList()
 	@Volatile private var freqByWord: Map<String, Float> = emptyMap()
+	// Per-process in-memory boost layered on top of the SQLite-loaded frequencies. Lets the user's
+	// just-accepted words rerank for glide without re-reading the DB. The disk-side T9 frequency
+	// column is still updated by the existing T9 acceptance path.
+	private val sessionBoost = java.util.concurrent.ConcurrentHashMap<String, Float>()
 
 	val isLoaded: Boolean get() = words.isNotEmpty()
 
 	override fun getListOfWords(): List<String> = words
 
-	override fun getFrequencyForWord(word: String): Float = freqByWord[word] ?: 0f
+	override fun getFrequencyForWord(word: String): Float {
+		val base = freqByWord[word] ?: 0f
+		val boost = sessionBoost[word] ?: 0f
+		return (base + boost).coerceAtMost(1f)
+	}
 
 	companion object {
 		private val cache = HashMap<Int, Tt9WordProvider>()
+		// Additive bump per acceptance. Picked small so it nudges ordering without overwhelming
+		// the disk frequency for very common words; accumulates for words the user keeps picking.
+		private const val FREQUENCY_BUMP_PER_USE: Float = 0.10f
+
+		/**
+		 * Increment the in-memory frequency boost for [word] in [languageId]'s cached provider.
+		 * No-op if the language hasn't been loaded yet (the boost would be lost on later load —
+		 * which is fine; disk-side frequency catches up).
+		 */
+		@JvmStatic
+		fun bumpFrequency(languageId: Int, word: String) {
+			if (word.isEmpty()) return
+			val provider = synchronized(cache) { cache[languageId] } ?: return
+			if (!provider.isLoaded) return
+			provider.sessionBoost.merge(word, FREQUENCY_BUMP_PER_USE) { a, b -> (a + b).coerceAtMost(1f) }
+		}
 
 		/**
 		 * Fetches (or reuses a cached) provider for [language]. [onReady] is invoked with a loaded

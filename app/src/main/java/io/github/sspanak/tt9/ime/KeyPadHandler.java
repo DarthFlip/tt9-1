@@ -61,6 +61,7 @@ abstract class KeyPadHandler extends UiHandler {
 		// "backspace" key must repeat its function when held down, so we handle it in a special way
 		if (Key.isBackspace(settings, keyCode)) {
 			if (onBackspace(event.getRepeatCount())) {
+				maybeHideOnPhysicalKey();
 				return Key.setHandled(KeyEvent.KEYCODE_DEL, true);
 			} else {
 				Key.setHandled(KeyEvent.KEYCODE_DEL, false);
@@ -170,7 +171,9 @@ abstract class KeyPadHandler extends UiHandler {
 		if (Key.isNumber(keyCode)) {
 			numKeyRepeatCounter = (lastNumKeyCode == keyCode) ? numKeyRepeatCounter + 1 : 0;
 			lastNumKeyCode = keyCode;
-			return onNumber(Key.codeToNumber(settings, keyCode), false, numKeyRepeatCounter);
+			boolean handled = onNumber(Key.codeToNumber(settings, keyCode), false, numKeyRepeatCounter);
+			if (handled) maybeHideOnPhysicalKey();
+			return handled;
 		}
 
 		if (Key.isBack(keyCode)) {
@@ -187,6 +190,22 @@ abstract class KeyPadHandler extends UiHandler {
 
 	private boolean handleHotkey(int keyCode, boolean hold, boolean repeat, boolean validateOnly) {
 		return onHotkey(keyCode * (hold ? -1 : 1), repeat, validateOnly);
+	}
+
+
+	/**
+	 * Collapse the on-screen keys panel after a physical typing key was handled, so the user
+	 * gets the full screen back while typing on the keypad. The IME stays alive — only the keys
+	 * container is hidden, so the suggestion strip remains and the just-processed keypress can
+	 * complete its async dictionary lookup without {@code onFinishInputView} tearing down state.
+	 * The keys come back on the next text-field focus (via {@link MainViewHandler#initUi}).
+	 *
+	 * Only fires when the QWERTY layout is the user's configured main layout.
+	 */
+	private void maybeHideOnPhysicalKey() {
+		if (settings == null || !settings.isMainLayoutQwerty()) return;
+		if (mainView == null) return;
+		mainView.setKeysCollapsed(true);
 	}
 
 

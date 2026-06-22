@@ -159,7 +159,10 @@ abstract public class SuggestionHandler extends TypingHandler {
 			surroundingText = onAcceptPreviousSuggestion();
 		}
 
-		final ArrayList<String> suggestions = mInputMode.getSuggestions();
+		// Step E: drop candidates that violate any non-contiguous lock in the shared composing
+		// buffer (e.g. user typed T9 "234" then tapped QWERTY "h" — we keep words with 'h' at
+		// position 3). No-op when there are no locks past an ambiguous T9 digit.
+		final ArrayList<String> suggestions = filterByComposingWord(mInputMode.getSuggestions());
 		suggestionOps.set(suggestions, mInputMode.getRecommendedSuggestionIdx(), mInputMode.containsGeneratedSuggestions());
 
 		// either accept the first one automatically (when switching from punctuation to text

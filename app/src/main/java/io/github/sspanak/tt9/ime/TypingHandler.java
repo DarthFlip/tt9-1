@@ -21,6 +21,7 @@ import io.github.sspanak.tt9.ime.helpers.TextSelection;
 import io.github.sspanak.tt9.ime.mindreader.MindReader;
 import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
+import io.github.sspanak.tt9.ime.swipe.Tt9WordProvider;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageCollection;
 import io.github.sspanak.tt9.languages.LanguageKind;
@@ -47,6 +48,14 @@ public abstract class TypingHandler extends KeyPadHandler {
 	 * ModeWords so the two input paths agree on a single in-progress word.
 	 */
 	@NonNull protected final ComposingWord composingWord = new ComposingWord();
+
+	/**
+	 * Set to true while {@link #onQwertyLetter} calls {@code mInputMode.onNumber} synthetically
+	 * (to extend digitSequence with the typed letter's T9 digit at a non-contiguous lock position).
+	 * Prevents {@link #onNumber} from adding a SECOND ambiguous digit to composingWord — the
+	 * QWERTY path already added a LOCKED letter for the same position.
+	 */
+	private boolean suppressComposingDigitAppend = false;
 
 	// language
 	protected ArrayList<Integer> mEnabledLanguages;
@@ -179,14 +188,48 @@ public abstract class TypingHandler extends KeyPadHandler {
 		}
 
 		suggestionOps.cancelDelayedAccept();
+		final int sizeBefore = composingWord.size();
 		composingWord.appendLockedLetter(c);
 
 		final String newStem = composingWord.getLockedPrefix();
-		if (newStem.isEmpty() || !mInputMode.setWordStem(newStem, true)) {
-			// setWordStem refused the stem (invalid chars for the active language) — fall back to
-			// a plain letter commit so the user still sees their input.
+		// Case 1: the new letter extends the leading locked prefix. Feed it to ModeWords as a
+		// stem update — the existing T9 dictionary filter narrows on it.
+		if (!newStem.isEmpty() && newStem.length() == sizeBefore + 1) {
+			if (mInputMode.setWordStem(newStem, true)) {
+				// Show the typed prefix immediately so the keypress feels instant — without this,
+				// the letter doesn't appear until the async dictionary query completes (visible lag
+				// on slow disks / large vocabularies). The async suggestion handler overwrites this
+				// with the highlighted-stem version once it returns.
+				appHacks.setComposingText(newStem);
+				getSuggestions(Math.random(), null, null);
+				return true;
+			}
+			// setWordStem refused (invalid char for the active language); roll back and commit
+			// as literal text below.
 			composingWord.removeLast();
 			return onText(letter, false);
+		}
+
+		// Case 2: there are ambiguous T9 digits between the leading lock-run and this new letter.
+		// We can't feed setWordStem (it's prefix-only and would clobber digitSequence). Instead:
+		// look up the T9 digit for this letter, append it to digitSequence via a synthetic
+		// onNumber call, and rely on Step E's post-filter (ComposingWord.matches) to drop
+		// candidates that violate the position lock.
+		final int digit = digitFor(c);
+		if (digit < 0) {
+			composingWord.removeLast();
+			return onText(letter, false);
+		}
+
+		suppressComposingDigitAppend = true;
+		try {
+			final String[] surrounding = textField.getSurroundingStringForAutoAssistance(settings, mInputMode);
+			if (!mInputMode.onNumber(digit, false, 0, surrounding)) {
+				composingWord.removeLast();
+				return onText(letter, false);
+			}
+		} finally {
+			suppressComposingDigitAppend = false;
 		}
 
 		getSuggestions(Math.random(), null, null);
@@ -195,12 +238,218 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 
 	/**
-	 * Called when the user taps backspace while on the QWERTY layout. Trims the composing buffer
-	 * and walks tt9's usual backspace pipeline so suggestions + digitSequence stay in sync.
+	 * Return the T9 digit (2..9) that produces [c] in the active language, or -1 if [c] is
+	 * not a letter on the keypad. Wraps {@link io.github.sspanak.tt9.languages.Language#getDigitSequenceForWord}
+	 * for the single-char case.
+	 */
+	private int digitFor(char c) {
+		if (mLanguage == null) return -1;
+		try {
+			final String seq = mLanguage.getDigitSequenceForWord(String.valueOf(c));
+			if (seq.isEmpty()) return -1;
+			final char d = seq.charAt(0);
+			if (d < '0' || d > '9') return -1;
+			return d - '0';
+		} catch (Exception e) {
+			return -1;
+		}
+	}
+
+
+	/**
+	 * Called when the user taps backspace while on the QWERTY layout. Walks tt9's usual
+	 * backspace pipeline; {@link #onBackspace} already trims the composing buffer for us, so
+	 * we don't double-remove here.
 	 */
 	public boolean onQwertyBackspace() {
-		composingWord.removeLast();
 		return onBackspace(0);
+	}
+
+
+	/**
+	 * Currently locked QWERTY-tapped prefix of the in-progress word, if any. Used by the glide
+	 * pipeline so candidates are filtered to words starting with the prefix and matching is done
+	 * against the suffix only (the user's gesture starts at the letter after the prefix).
+	 */
+	@NonNull
+	public String getLockedPrefix() {
+		return composingWord.getLockedPrefix();
+	}
+
+
+	/**
+	 * True if [key] is a letter-bearing T9 digit (2..9 in the standard T9 convention). Used to
+	 * decide whether a digit press should grow the shared composing buffer.
+	 */
+	private static boolean isWordDigit(int key) {
+		return key >= 2 && key <= 9;
+	}
+
+
+	/**
+	 * Step E: drop suggestions that violate a non-contiguous lock in the shared composing buffer.
+	 *
+	 * The leading contiguous lock is already enforced by {@code setWordStem}; this filter only
+	 * runs when there are locks PAST an ambiguous T9 digit (the QWERTY-mid-T9 case), where stem
+	 * filtering can't express the constraint.
+	 *
+	 * No-op when the buffer is empty or only has a contiguous prefix.
+	 */
+	@Nullable
+	protected ArrayList<String> filterByComposingWord(@Nullable ArrayList<String> suggestions) {
+		if (suggestions == null || suggestions.isEmpty()) return suggestions;
+		if (composingWord.isEmpty() || !composingWord.hasNonContiguousLocks()) return suggestions;
+
+		final ArrayList<String> filtered = new ArrayList<>(suggestions.size());
+		for (String s : suggestions) {
+			if (composingWord.matches(s)) filtered.add(s);
+		}
+		// If the filter empties the list, fall back to the unfiltered list rather than show
+		// nothing — better UX than "no suggestions" when the user has been typing.
+		return filtered.isEmpty() ? suggestions : filtered;
+	}
+
+
+	/**
+	 * Stronger filter for glide candidates: enforces BOTH locked-position matches AND
+	 * ambiguous-position-must-match-T9-digit. The T9 lookup path doesn't need this because the
+	 * DB query already keys on (digitSequence, stem); glide goes through a shape-matching
+	 * classifier that's blind to the digit sequence.
+	 *
+	 * Example: composingWord = [ambig, ambig, locked('h')], digitSequence = "23h's-key-here".
+	 * A glide candidate "xyz...h..." with x at position 0 must be a 2-key letter, y at position 1
+	 * a 3-key letter, and z (or 'h') at position 2 must equal 'h'.
+	 */
+	@NonNull
+	protected ArrayList<String> filterGlideByComposingState(@NonNull java.util.List<String> suggestions) {
+		final ArrayList<String> in = new ArrayList<>(suggestions);
+		if (in.isEmpty() || composingWord.isEmpty()) return in;
+
+		final String digits = mInputMode.getDigitSequence();
+		final boolean needsAmbigCheck = digits.length() > 0 && hasAmbiguousTokens();
+		final boolean needsLockCheck = composingWord.hasNonContiguousLocks();
+		if (!needsAmbigCheck && !needsLockCheck) return in;
+
+		final ArrayList<String> filtered = new ArrayList<>(in.size());
+		for (String w : in) {
+			if (!composingWord.matches(w)) continue;
+			if (needsAmbigCheck && !ambiguousPositionsMatchDigits(w, digits)) continue;
+			filtered.add(w);
+		}
+		return filtered.isEmpty() ? in : filtered;
+	}
+
+
+	private boolean hasAmbiguousTokens() {
+		for (int i = 0; i < composingWord.size(); i++) {
+			if (composingWord.isPositionAmbiguous(i)) return true;
+		}
+		return false;
+	}
+
+
+	private boolean ambiguousPositionsMatchDigits(@NonNull String word, @NonNull String digits) {
+		if (mLanguage == null) return true;
+		final String lower = word.toLowerCase();
+		final int len = Math.min(Math.min(lower.length(), composingWord.size()), digits.length());
+		for (int i = 0; i < len; i++) {
+			if (!composingWord.isPositionAmbiguous(i)) continue;
+			final char d = digits.charAt(i);
+			if (d < '0' || d > '9') continue;
+			final ArrayList<String> keyChars = mLanguage.getKeyCharacters(d - '0');
+			if (keyChars == null || keyChars.isEmpty()) continue;
+			if (!keyChars.contains(String.valueOf(lower.charAt(i)))) return false;
+		}
+		return true;
+	}
+
+
+	/**
+	 * Entry point for completed glide gestures. Receives the classifier's top-N candidates and
+	 * routes them through the same suggestion strip the T9/QWERTY-tap paths use, so the user can
+	 * scroll/pick alternatives instead of being force-committed to the top-1.
+	 *
+	 * Reordering: any candidate that also appears in MindReader's current next-word guess list
+	 * (bigram/context prior) is moved to the front while preserving its relative order. Cheap
+	 * because glide commits are rare.
+	 *
+	 * Empty list: no-op (gesture was unmatchable; leave the field untouched).
+	 */
+	/**
+	 * Step F: live in-gesture suggestions. Called from the glide container on every throttled
+	 * mid-gesture tick. Lightweight: just refreshes the suggestion strip — no composing-text
+	 * update, no ComposingWord mutation, no ModeWords stem change. The strip stabilizes on
+	 * gesture lift-off when {@link #onGlideSuggestions} runs.
+	 */
+	public boolean onGlideMidSuggestions(@Nullable java.util.List<String> rawWords) {
+		if (rawWords == null || rawWords.isEmpty()) return false;
+		if (InputModeKind.isPassthrough(mInputMode)) return false;
+		// Apply the same composing-state filter as the final-gesture path so live candidates
+		// can't violate a position lock or a pending T9 digit. Apply the active text case so the
+		// strip preview reads correctly when shift / caps is in play.
+		final ArrayList<String> filtered = filterGlideByComposingState(rawWords);
+		if (filtered.isEmpty()) return false;
+		suggestionOps.cancelDelayedAccept();
+		if (mLanguage != null) suggestionOps.setTextCase(mLanguage, mInputMode.getTextCase());
+		suggestionOps.set(filtered, 0, false);
+		// Live composing-text preview: the user reads the field while their finger is in motion,
+		// so anchor it to the current top candidate. Replaced on each tick; the final list
+		// overwrites this when the finger lifts.
+		appHacks.setComposingText(filtered.get(0));
+		return true;
+	}
+
+
+	public boolean onGlideSuggestions(@Nullable java.util.List<String> rawWords) {
+		if (rawWords == null || rawWords.isEmpty()) return false;
+		if (InputModeKind.isPassthrough(mInputMode)) return false;
+
+		// Enforce position locks AND ambiguous-digit constraints first — context reordering
+		// shouldn't be able to resurrect a candidate that violates what the user has already
+		// typed via T9 / QWERTY tap.
+		final java.util.List<String> constrained = filterGlideByComposingState(rawWords);
+		if (constrained.isEmpty()) return false;
+
+		final java.util.ArrayList<String> ranked = new java.util.ArrayList<>(constrained.size());
+		final java.util.ArrayList<String> contextWords = mindReader.getGuesses();
+		if (contextWords != null && !contextWords.isEmpty()) {
+			final java.util.HashSet<String> contextSet = new java.util.HashSet<>(contextWords.size());
+			for (String g : contextWords) contextSet.add(g.toLowerCase());
+			for (String w : constrained) if (contextSet.contains(w.toLowerCase())) ranked.add(w);
+			for (String w : constrained) if (!contextSet.contains(w.toLowerCase())) ranked.add(w);
+		} else {
+			ranked.addAll(constrained);
+		}
+
+		suggestionOps.cancelDelayedAccept();
+		if (mLanguage != null) suggestionOps.setTextCase(mLanguage, mInputMode.getTextCase());
+		suggestionOps.set(ranked, 0, false);
+
+		// Show the top candidate as composing text so it's visible in the field before the user
+		// presses OK / a continuation key. No locked-prefix highlight — the prefix (if any) is
+		// already in the text field via QWERTY taps.
+		final String top = ranked.get(0);
+		appHacks.setComposingText(top);
+
+		// Step D: treat the top glide candidate as a tentative in-progress word. Repopulate the
+		// shared composing buffer with its letters as locked tokens and sync ModeWords' stem to
+		// it. That way a follow-up QWERTY tap extends the candidate ("hello" + tap "s" -> stem
+		// "hellos"), a follow-up T9 digit appends ambiguously, and OK/space commits via the
+		// normal path. If the user picks a different candidate via scroll, scrollSuggestions
+		// re-syncs (see below).
+		composingWord.clear();
+		for (int i = 0; i < top.length(); i++) {
+			composingWord.appendLockedLetter(top.charAt(i));
+		}
+		// setWordStem can throw / refuse if the candidate has chars the language doesn't recognise
+		// (rare in practice — glide only emits words from the language's dictionary). Failure
+		// just leaves stem unchanged; the strip is still set and OK still works.
+		try {
+			mInputMode.setWordStem(top, true);
+		} catch (Exception ignored) {}
+
+		forceShowWindow();
+		return true;
 	}
 
 
@@ -287,6 +536,18 @@ public abstract class TypingHandler extends KeyPadHandler {
 			return false;
 		}
 
+		// Step A: keep the shared composing buffer in sync with T9 digit presses, so subsequent
+		// QWERTY taps / glide gestures can reason about the in-progress word. Only matters when
+		// the on-screen QWERTY is active — physical-keypad-only sessions never read the buffer.
+		// Skipped when called synthetically from onQwertyLetter (a locked letter was already
+		// appended for this same digit position).
+		if (!suppressComposingDigitAppend
+			&& !settings.isMainLayoutStealth()
+			&& InputModeKind.isPredictive(mInputMode)
+			&& isWordDigit(key)) {
+			composingWord.appendAmbiguousDigit();
+		}
+
 		if (mInputMode.shouldSelectNextSuggestion() && !mInputMode.noSuggestions()) {
 			scrollSuggestions(false);
 			suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout());
@@ -347,6 +608,13 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// A whole word went to the text field — whatever was in the shared composing buffer is
 		// now stale.
 		composingWord.clear();
+
+		// Keep glide's in-memory per-user frequency map in sync without an SQLite reload. Disk
+		// frequencies are still incremented by the T9 acceptance path; this just nudges the
+		// glide-side ranking so words the user just chose are more likely to win next time.
+		if (mLanguage != null && text != null && !text.isEmpty() && new Text(text).isAlphabetic()) {
+			Tt9WordProvider.bumpFrequency(mLanguage.getId(), text.toLowerCase());
+		}
 
 		return true;
 	}
@@ -537,7 +805,19 @@ public abstract class TypingHandler extends KeyPadHandler {
 	protected void scrollSuggestions(boolean backward) {
 		suggestionOps.cancelDelayedAccept();
 		suggestionOps.scrollTo(backward ? -1 : 1);
-		mInputMode.setWordStem(suggestionOps.getCurrent(), true);
+		final String picked = suggestionOps.getCurrent();
+		// Step D: if the shared buffer is all-locked-and-contiguous, the user was picking among
+		// glide candidates (or among scroll-equivalent candidates). Resync the buffer so a
+		// follow-up QWERTY tap / T9 digit extends THIS candidate, not the old top.
+		if (!composingWord.isEmpty()
+			&& composingWord.size() == composingWord.getLockedPrefix().length()
+			&& picked != null && !picked.isEmpty()) {
+			composingWord.clear();
+			for (int i = 0; i < picked.length(); i++) {
+				composingWord.appendLockedLetter(picked.charAt(i));
+			}
+		}
+		mInputMode.setWordStem(picked, true);
 		if (InputModeKind.isRecomposing(mInputMode)) {
 			appHacks.setComposingTextPartsWithHighlightedJoining(mInputMode.getWordStem() + suggestionOps.getCurrent(), mInputMode.getRecomposingSuffix());
 		} else {

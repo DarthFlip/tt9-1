@@ -37,15 +37,39 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 	private var distanceThresholdSquared = 0
 	private var layoutReady = false
 	private var wordsReady = false
+	private var wordPrefix: String = ""
 
 	val ready: Boolean get() = layoutReady && wordsReady && pruner != null
 
 	companion object {
 		private const val PRUNING_LENGTH_THRESHOLD = 8.42
-		private const val SAMPLING_POINTS: Int = 200
+		// Reference calibration: SHAPE_STD/LOCATION_STD were tuned against this point count.
+		// Actual sampling at gesture time scales with gesture length; SHAPE_STD scales with it
+		// so the Gaussian likelihood stays comparable across short and long gestures.
+		private const val REFERENCE_SAMPLES: Int = 200
+		private const val SAMPLES_PER_KEY: Float = 25f
+		private const val MIN_SAMPLES: Int = 80
+		private const val MAX_SAMPLES: Int = 240
 		private const val SHAPE_STD = 22.08f
 		private const val LOCATION_STD = 0.5109f
 		private const val SUGGESTION_CACHE_SIZE = 5
+		// Start- and end-key search widened (was 2 each). The hard cutoff used to be brittle —
+		// a finger landing one key off-target killed the right candidate. Now both sides allow
+		// a wider candidate pool and a SOFT quadratic proximity penalty (below) sorts them by
+		// closeness to the actual key center. Pattern from AnySoftKeyboard's GestureTypingDetector.
+		private const val START_KEY_CANDIDATES: Int = 5
+		private const val END_KEY_CANDIDATES: Int = 5
+		// Proximity penalty: penalises candidates whose word-start/end falls further from the
+		// user's gesture start/end. End factor is HALVED — users systematically overshoot at
+		// the end of a swipe. Tuned per AnySoftKeyboard (PROXIMITY_PENALTY_FACTOR=0.000667,
+		// END_PROXIMITY_PENALTY_FACTOR=0.000333).
+		private const val START_PROXIMITY_PENALTY_FACTOR: Float = 0.000667f
+		private const val END_PROXIMITY_PENALTY_FACTOR: Float = 0.000333f
+		// Direction penalty: each gesture segment whose direction disagrees with the ideal-path
+		// direction at the same position contributes more to total shape distance.
+		// cosθ=+1 (same direction) → 1×, cosθ=0 (perpendicular) → 2×, cosθ=-1 (opposite) → 3×.
+		// Catches the failure mode where shape distance accepts a wildly wrong-direction path.
+		private const val DIRECTION_PENALTY_FACTOR: Float = 1.0f
 	}
 
 	override fun addGesturePoint(position: GlideTypingGesture.Detector.Position) {
@@ -80,7 +104,17 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		this.wordProvider = provider
 		this.words = provider.getListOfWords()
 		this.wordsReady = true
+		lruSuggestionCache.evictAll()
 		maybeInitPruner()
+	}
+
+	override fun setWordPrefix(prefix: String) {
+		val normalized = prefix.lowercase()
+		if (this.wordPrefix == normalized) return
+		this.wordPrefix = normalized
+		// Cached results were computed under the old prefix — they're stale even though the gesture
+		// key compares equal.
+		lruSuggestionCache.evictAll()
 	}
 
 	private fun maybeInitPruner() {
@@ -94,41 +128,114 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 	private val lruSuggestionCache = LruCache<Pair<Gesture, Int>, List<String>>(SUGGESTION_CACHE_SIZE)
 	override fun getSuggestions(maxSuggestionCount: Int, gestureCompleted: Boolean): List<String> {
-		if (!ready) return emptyList()
-		return when (val cached = lruSuggestionCache.get(Pair(this.gesture, maxSuggestionCount))) {
-			null -> {
-				val suggestions = unCachedGetSuggestions(maxSuggestionCount)
-				lruSuggestionCache.put(Pair(this.gesture.clone(), maxSuggestionCount), suggestions)
-				suggestions
-			}
-			else -> cached
-		}
+		return analyzeGesture(this.gesture, maxSuggestionCount)
 	}
 
-	private fun unCachedGetSuggestions(maxSuggestionCount: Int): List<String> {
+	/**
+	 * Worker-thread-safe scoring entry point. Takes a gesture snapshot (clone the live one before
+	 * passing it in) so the caller can clear or mutate the classifier's own state in parallel.
+	 * All other state read here (keys, pruner, words, wordPrefix) is set up at layout / load
+	 * time and stable during a gesture's lifetime.
+	 */
+	fun analyzeGesture(snapshot: Gesture, maxSuggestionCount: Int): List<String> {
+		if (!ready) return emptyList()
+		if (snapshot.pointCount < 2) return emptyList()
+		synchronized(lruSuggestionCache) {
+			lruSuggestionCache.get(Pair(snapshot, maxSuggestionCount))?.let { return it }
+		}
+		val suggestions = unCachedGetSuggestions(maxSuggestionCount, snapshot)
+		synchronized(lruSuggestionCache) {
+			lruSuggestionCache.put(Pair(snapshot.clone(), maxSuggestionCount), suggestions)
+		}
+		return suggestions
+	}
+
+	/** Take a copy of the current gesture buffer for off-main scoring, then clear the live one. */
+	fun snapshotGestureAndClear(): Gesture {
+		val snap = gesture.clone()
+		gesture.clear()
+		return snap
+	}
+
+	/** Clone the live gesture without clearing — used by mid-gesture preview scoring. */
+	fun cloneInternalGesture(): Gesture = gesture.clone()
+
+	private fun unCachedGetSuggestions(maxSuggestionCount: Int, gesture: Gesture): List<String> {
 		val candidates = arrayListOf<String>()
 		val candidateWeights = arrayListOf<Float>()
 		val key = keys.firstOrNull() ?: return listOf()
 		val radius = min(key.height, key.width)
 		val activePruner = pruner ?: return listOf()
-		var remainingWords = activePruner.pruneByExtremities(gesture, this.keys)
-		val userGesture = gesture.resample(SAMPLING_POINTS)
+
+		// Adaptive sampling: scale point count with gesture length so short gestures aren't
+		// over-sampled and long ones aren't under-sampled. SHAPE_STD scales with point count
+		// (it's a sum of per-point distances) to keep the Gaussian calibration consistent.
+		val gestureLen = gesture.getLength()
+		val samplingPoints = ((gestureLen / key.width) * SAMPLES_PER_KEY)
+			.toInt()
+			.coerceIn(MIN_SAMPLES, MAX_SAMPLES)
+		val shapeStd = SHAPE_STD * (samplingPoints.toFloat() / REFERENCE_SAMPLES)
+
+		val activePrefix = wordPrefix
+		val prefixLen = activePrefix.length
+
+		var remainingWords: ArrayList<String> = if (activePrefix.isEmpty()) {
+			activePruner.pruneByExtremities(gesture, this.keys)
+		} else {
+			// With a locked prefix, the user's gesture starts at word[prefixLen], not word[0],
+			// so the pruner's (first-key, last-key) tree is wrong. Filter on prefix instead and
+			// let the full scoring loop run on what remains (typically a small subset).
+			val filtered = ArrayList<String>()
+			for (w in words) {
+				if (w.length > prefixLen && w.startsWith(activePrefix)) filtered.add(w)
+			}
+			filtered
+		}
+
+		val userGesture = gesture.resample(samplingPoints)
 		val normalizedUserGesture: Gesture = userGesture.normalizeByBoxSide()
-		remainingWords = activePruner.pruneByLength(gesture, remainingWords, keysByCharacter, keys)
+		if (activePrefix.isEmpty()) {
+			remainingWords = activePruner.pruneByLength(gesture, remainingWords, keysByCharacter, keys)
+		}
+
+		// Track the worst shapeDistance still in the kept candidate list so we can early-exit
+		// further per-word scoring. Updated alongside candidateWeights. Pattern from
+		// AnySoftKeyboard's `failFastThreshold`.
+		val candidateShapeDistances = ArrayList<Float>()
+		var failFastShapeDistance = Float.POSITIVE_INFINITY
 
 		for (i in remainingWords.indices) {
 			val word = remainingWords[i]
-			val idealGestures = Gesture.generateIdealGestures(word, keysByCharacter)
+			val idealGestures = Gesture.generateIdealGestures(word, keysByCharacter, prefixLen)
 
 			for (idealGesture in idealGestures) {
-				val wordGesture = idealGesture.resample(SAMPLING_POINTS)
+				if (idealGesture.pointCount < 2) continue
+				val wordGesture = idealGesture.resample(samplingPoints)
 				val normalizedGesture: Gesture = wordGesture.normalizeByBoxSide()
-				val shapeDistance = calcShapeDistance(normalizedGesture, normalizedUserGesture)
+				val shapeDistance = calcShapeDistance(normalizedGesture, normalizedUserGesture, failFastShapeDistance)
+				if (shapeDistance.isInfinite()) continue  // bailed early — word can't beat current top-N
 				val locationDistance = calcLocationDistance(wordGesture, userGesture)
-				val shapeProbability = calcGaussianProbability(shapeDistance, 0.0f, SHAPE_STD)
+				val shapeProbability = calcGaussianProbability(shapeDistance, 0.0f, shapeStd)
 				val locationProbability = calcGaussianProbability(locationDistance, 0.0f, LOCATION_STD * radius)
 				val frequency = 255f * wordProvider.getFrequencyForWord(word)
-				val confidence = 1.0f / (shapeProbability * locationProbability * (frequency + 1f))
+				// Soft proximity penalty: distance² from gesture start/end to the word's
+				// actual first/last key, halved at the end (users overshoot on swipe-out).
+				// Added directly to confidence (smaller = better), so further-off keys score worse
+				// without being eliminated by hard pruning.
+				val firstKey = wordKeyAt(word, prefixLen)
+				val lastKey = wordKeyAt(word, word.length - 1)
+				var proximityPenalty = 0f
+				if (firstKey != null) {
+					val sdx = gesture.getFirstX() - firstKey.centerX
+					val sdy = gesture.getFirstY() - firstKey.centerY
+					proximityPenalty += START_PROXIMITY_PENALTY_FACTOR * (sdx * sdx + sdy * sdy)
+				}
+				if (lastKey != null) {
+					val edx = gesture.getLastX() - lastKey.centerX
+					val edy = gesture.getLastY() - lastKey.centerY
+					proximityPenalty += END_PROXIMITY_PENALTY_FACTOR * (edx * edx + edy * edy)
+				}
+				val confidence = 1.0f / (shapeProbability * locationProbability * (frequency + 1f)) + proximityPenalty
 
 				var candidateDistanceSortedIndex = 0
 				var duplicateIndex = Int.MAX_VALUE
@@ -144,12 +251,21 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 					if (duplicateIndex < Int.MAX_VALUE) {
 						candidateWeights.removeAt(duplicateIndex)
 						candidates.removeAt(duplicateIndex)
+						candidateShapeDistances.removeAt(duplicateIndex)
 					}
 					candidateWeights.add(candidateDistanceSortedIndex, confidence)
 					candidates.add(candidateDistanceSortedIndex, word)
+					candidateShapeDistances.add(candidateDistanceSortedIndex, shapeDistance)
 					if (candidateWeights.size > maxSuggestionCount) {
 						candidateWeights.removeAt(maxSuggestionCount)
 						candidates.removeAt(maxSuggestionCount)
+						candidateShapeDistances.removeAt(maxSuggestionCount)
+					}
+					// Tighten the early-exit threshold once we have a full set. The worst kept
+					// shapeDistance is the bar to beat; anything scoring beyond it would be
+					// dropped after sort anyway.
+					if (candidateShapeDistances.size >= maxSuggestionCount) {
+						failFastShapeDistance = candidateShapeDistances[maxSuggestionCount - 1]
 					}
 				}
 			}
@@ -160,12 +276,31 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 	override fun clear() { gesture.clear() }
 
+	/** Read-only view of the currently configured key bounds. Used by the touch-offset adapter. */
+	val layoutKeys: List<SwipeKey> get() = keys
+
+	/**
+	 * Return the [SwipeKey] for the character at [index] in [word], or null if either the index
+	 * is out of range or the character isn't on the current layout. Falls back to the NFD base
+	 * character (e.g. ñ → n) so accented letters still resolve to their physical key.
+	 */
+	private fun wordKeyAt(word: String, index: Int): SwipeKey? {
+		if (index < 0 || index >= word.length) return null
+		val lc = Character.toLowerCase(word[index])
+		val direct = keysByCharacter[lc.code]
+		if (direct != null) return direct
+		val base = Normalizer.normalize(lc.toString(), Normalizer.Form.NFD)[0]
+		return keysByCharacter[base.code]
+	}
+
 	private fun calcLocationDistance(gesture1: Gesture, gesture2: Gesture): Float {
 		var totalDistance = 0.0f
-		for (i in 0 until SAMPLING_POINTS) {
+		val n = min(gesture1.pointCount, gesture2.pointCount)
+		if (n == 0) return 0f
+		for (i in 0 until n) {
 			totalDistance += abs(gesture1.getX(i) - gesture2.getX(i)) + abs(gesture1.getY(i) - gesture2.getY(i))
 		}
-		return totalDistance / SAMPLING_POINTS / 2
+		return totalDistance / n / 2
 	}
 
 	private fun calcGaussianProbability(value: Float, mean: Float, standardDeviation: Float): Float {
@@ -174,10 +309,33 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		return (factor * exp(-1.0 / 2 * exponent)).toFloat()
 	}
 
-	private fun calcShapeDistance(gesture1: Gesture, gesture2: Gesture): Float {
+	private fun calcShapeDistance(gesture1: Gesture, gesture2: Gesture, failFastAbove: Float = Float.POSITIVE_INFINITY): Float {
 		var totalDistance = 0.0f
-		for (i in 0 until SAMPLING_POINTS) {
-			totalDistance += Gesture.distance(gesture1.getX(i), gesture1.getY(i), gesture2.getX(i), gesture2.getY(i))
+		val n = min(gesture1.pointCount, gesture2.pointCount)
+		for (i in 0 until n) {
+			// Early termination (AnySoftKeyboard pattern): once cumulative distance has exceeded
+			// the worst candidate currently in the top-N, scoring this word any further is wasted
+			// work — the word cannot displace the worst candidate. Bail with infinity; caller
+			// treats it as "skip this word."
+			if (totalDistance > failFastAbove) return Float.POSITIVE_INFINITY
+			val d = Gesture.distance(gesture1.getX(i), gesture1.getY(i), gesture2.getX(i), gesture2.getY(i))
+			// Direction penalty (AnySoftKeyboard pattern). Scale each segment's contribution by
+			// how much the two paths' LOCAL directions disagree. cosθ=+1 → 1×, cosθ=0 → 2×,
+			// cosθ=-1 → 3×. Catches paths that visit the right keys in the wrong order.
+			// Safe on UI now that the classifier runs on a worker thread.
+			val mult = if (i > 0) {
+				val u1x = gesture1.getX(i) - gesture1.getX(i - 1)
+				val u1y = gesture1.getY(i) - gesture1.getY(i - 1)
+				val u2x = gesture2.getX(i) - gesture2.getX(i - 1)
+				val u2y = gesture2.getY(i) - gesture2.getY(i - 1)
+				val m1sq = u1x * u1x + u1y * u1y
+				val m2sq = u2x * u2x + u2y * u2y
+				if (m1sq > 0f && m2sq > 0f) {
+					val cos = (u1x * u2x + u1y * u2y) / sqrt(m1sq * m2sq)
+					1f + DIRECTION_PENALTY_FACTOR * (1f - cos)
+				} else 1f
+			} else 1f
+			totalDistance += d * mult
 		}
 		return totalDistance
 	}
@@ -191,8 +349,8 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 		fun pruneByExtremities(userGesture: Gesture, keys: Iterable<SwipeKey>): ArrayList<String> {
 			val remainingWords = ArrayList<String>()
-			val startKeys = findNClosestKeys(userGesture.getFirstX(), userGesture.getFirstY(), 2, keys)
-			val endKeys = findNClosestKeys(userGesture.getLastX(), userGesture.getLastY(), 2, keys)
+			val startKeys = findNClosestKeys(userGesture.getFirstX(), userGesture.getFirstY(), START_KEY_CANDIDATES, keys)
+			val endKeys = findNClosestKeys(userGesture.getLastX(), userGesture.getLastY(), END_KEY_CANDIDATES, keys)
 			for (startKey in startKeys) {
 				for (endKey in endKeys) {
 					val wordsForKeys = synchronized(wordTree) { wordTree[Pair(startKey, endKey)] }
@@ -272,13 +430,23 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		companion object {
 			private const val MAX_SIZE = 500
 
-			fun generateIdealGestures(word: String, keysByCharacter: SparseArrayCompat<SwipeKey>): List<Gesture> {
+			fun generateIdealGestures(
+				word: String,
+				keysByCharacter: SparseArrayCompat<SwipeKey>,
+				startIndex: Int = 0,
+			): List<Gesture> {
 				val idealGesture = Gesture()
 				val idealGestureWithLoops = Gesture()
 				var previousLetter = ' '
 				var hasLoops = false
 
+				var charIdx = -1
 				for (c in word) {
+					charIdx++
+					if (charIdx < startIndex) {
+						previousLetter = Character.toLowerCase(c)
+						continue
+					}
 					val lc = Character.toLowerCase(c)
 					var key = keysByCharacter[lc.code]
 					if (key == null) {
@@ -313,6 +481,8 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 		val isEmpty: Boolean get() = size == 0
 
+		val pointCount: Int get() = size
+
 		fun addPoint(x: Float, y: Float) {
 			if (size >= MAX_SIZE) return
 			xs[size] = x
@@ -330,7 +500,7 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 			var cumulativeError = 0.0f
 
 			if (this.size == 1) {
-				for (i in 0 until SAMPLING_POINTS) resampledGesture.addPoint(xs[0], ys[0])
+				for (i in 0 until numPoints) resampledGesture.addPoint(xs[0], ys[0])
 			}
 
 			for (i in 0 until size - 1) {
@@ -413,9 +583,13 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		}
 
 		override fun hashCode(): Int {
-			var result = xs.contentHashCode()
-			result = 31 * result + ys.contentHashCode()
-			result = 31 * result + size
+			// equals only compares [0, size) so hashCode must do the same — using contentHashCode
+			// over the full backing array hashed stale tail data, violating the contract.
+			var result = size
+			for (i in 0 until size) {
+				result = 31 * result + xs[i].toRawBits()
+				result = 31 * result + ys[i].toRawBits()
+			}
 			return result
 		}
 	}

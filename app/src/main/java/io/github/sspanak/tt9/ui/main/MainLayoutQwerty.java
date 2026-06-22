@@ -1,6 +1,7 @@
 package io.github.sspanak.tt9.ui.main;
 
 import android.content.res.Resources;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -19,6 +20,10 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 	private boolean isCommandPaletteShown = false;
 	private boolean isTextEditingPaletteShown = false;
 	private int height;
+	// Sticky collapsed state: when the user types physically, we hide the keys; non-tap events
+	// (mode-switch hotkey, mid-suggestion render, etc.) that re-run showKeyboard must NOT
+	// resurrect the keys. Only a real onStartInputView clears this flag.
+	private boolean keysExplicitlyCollapsed = false;
 
 
 	MainLayoutQwerty(TraditionalT9 tt9) {
@@ -31,7 +36,32 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 		super.showKeyboard();
 		isCommandPaletteShown = false;
 		isTextEditingPaletteShown = false;
-		togglePanel(R.id.qwerty_keys_container, true);
+		// Respect the sticky-collapsed flag — non-tap renders (mode switch, suggestion update,
+		// hotkey hold) should not undo the user's physical-typing dismissal.
+		togglePanel(R.id.qwerty_keys_container, !keysExplicitlyCollapsed);
+		if (keysExplicitlyCollapsed) {
+			setKeyboardHeight(computeStatusBarHeight());
+		}
+	}
+
+
+	@Override
+	public boolean isKeysCollapsed() { return keysExplicitlyCollapsed; }
+
+
+	@Override
+	public void setKeysCollapsed(boolean collapsed) {
+		keysExplicitlyCollapsed = collapsed;
+		togglePanel(R.id.qwerty_keys_container, !collapsed);
+		// The outer keyboard_container has a pinned height from setKeyboardHeight; the LinearLayout
+		// doesn't reflow on its own when a child becomes GONE. Resize the outer container so the
+		// IME visually shrinks to just the suggestion strip when collapsed, and back to full when
+		// expanded.
+		if (collapsed) {
+			setKeyboardHeight(computeStatusBarHeight());
+		} else {
+			setKeyboardHeight(getHeight(true));
+		}
 	}
 
 
@@ -63,14 +93,23 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 	@Override
 	int getHeight(boolean forceRecalculate) {
 		if (height <= 0 || forceRecalculate) {
-			final Resources res = tt9.getResources();
-			final float textSize = res.getDimension(R.dimen.status_bar_text_size);
-			final float statusPadding = Math.max(1, textSize * 0.45f);
-			final int statusBarHeight = Math.round((statusPadding + textSize) * tt9.getSettings().getSuggestionFontScale());
-			final int rowHeight = res.getDimensionPixelSize(R.dimen.qwerty_row_height);
-			height = statusBarHeight + rowHeight * ROW_COUNT;
+			final int rowHeight = tt9.getResources().getDimensionPixelSize(R.dimen.qwerty_row_height);
+			height = computeStatusBarHeight() + rowHeight * ROW_COUNT;
 		}
-		return height;
+		// When the user has collapsed the keys (typed physically), report just the status bar
+		// height. ResizableMainView's fitMain() reads this on every render to pin the outer
+		// keyboard_container height — without this override, fitMain would re-expand the
+		// container after every mode switch / hotkey, leaving a blank area below.
+		return keysExplicitlyCollapsed ? computeStatusBarHeight() : height;
+	}
+
+
+	/** Pixel height of just the suggestion strip / status bar — the keyboard's collapsed size. */
+	private int computeStatusBarHeight() {
+		final Resources res = tt9.getResources();
+		final float textSize = res.getDimension(R.dimen.status_bar_text_size);
+		final float statusPadding = Math.max(1, textSize * 0.45f);
+		return Math.round((statusPadding + textSize) * tt9.getSettings().getSuggestionFontScale());
 	}
 
 
@@ -111,6 +150,27 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 		enableClickHandlers();
 		renderKeys(false);
 		wireSwipeContainer();
+		wireTapToExpand();
+	}
+
+
+	/**
+	 * When the keys panel is collapsed (after physical typing), any tap on the visible IME area
+	 * (the suggestion strip / status bar) should expand the keys back. Suggestion children
+	 * consume their own clicks, so this only fires for taps on empty container area — the
+	 * intent is "the user wants the keyboard back."
+	 */
+	private void wireTapToExpand() {
+		if (view == null) return;
+		final View kc = view.findViewById(R.id.keyboard_container);
+		if (kc == null) return;
+		kc.setOnTouchListener((v, ev) -> {
+			if (keysExplicitlyCollapsed && ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+				setKeysCollapsed(false);
+				return true;
+			}
+			return false;
+		});
 	}
 
 
@@ -119,11 +179,19 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 		View container = view.findViewById(R.id.qwerty_keys_container);
 		if (!(container instanceof SwipeableKeyboardContainer)) return;
 		final SwipeableKeyboardContainer swipeHost = (SwipeableKeyboardContainer) container;
-		swipeHost.setOnWordDecoded(word -> {
-			if (tt9 != null && !word.isEmpty()) {
-				// Auto-space so users can glide word-after-word without hunting for the spacebar.
-				tt9.onText(word + " ", false);
-			}
+		// Pull the QWERTY-tap-locked prefix at the start of every gesture so glide can match the
+		// suffix only and continue a half-typed word.
+		swipeHost.setPrefixSupplier(() -> tt9 != null ? tt9.getLockedPrefix() : "");
+		// Route the candidate list through tt9's existing suggestion strip instead of force-
+		// committing top-1 with an auto-space. The user can scroll/pick alternatives and the
+		// commit pipeline (which triggers MindReader + the live-frequency bump) runs as usual.
+		swipeHost.setOnGlideSuggestions(words -> {
+			if (tt9 != null) tt9.onGlideSuggestions(words);
+		});
+		// Live mid-gesture candidates: refresh the strip while the finger is still moving so the
+		// user can lift off when they like a result. Throttled inside the container.
+		swipeHost.setOnGlideMidSuggestions(words -> {
+			if (tt9 != null) tt9.onGlideMidSuggestions(words);
 		});
 		swipeHost.bindLanguage(tt9 != null ? tt9.getLanguage() : null);
 	}

@@ -37,6 +37,8 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 	private var boundLangId: Int = UNBOUND_LANG
 	private var activeProvider: WordProvider = SeedWordProvider
 
+	// (Removed) Touch-snap fields — see comment above onInterceptTouchEvent for context.
+
 	// Swipe-trail renderer — ported from florisboard's drawGlideTrail (Apache 2.0). Points accumulate
 	// during a gesture and paint as shrinking circles on top of the keys; cleared on completion.
 	private val trailPoints = ArrayList<GlideTypingGesture.Detector.Position>()
@@ -53,15 +55,46 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 	}
 	private val trailRadiusReduction: Float = 0.985f
 
-	/** Called on the main thread when a completed gesture resolves to at least one candidate. */
-	fun interface OnWordDecoded {
-		fun onWord(word: String)
+	/** Called on the main thread when a completed gesture resolves to a ranked candidate list. */
+	fun interface OnGlideSuggestions {
+		fun onCandidates(words: List<String>)
 	}
 
-	private var onWordDecoded: OnWordDecoded? = null
+	/**
+	 * Called on the main thread with the classifier's best guesses *while* a gesture is still in
+	 * progress. Lets the IME show evolving candidates so the user can lift off when they like one,
+	 * instead of waiting for the gesture to finish. Throttled internally.
+	 */
+	fun interface OnGlideMidSuggestions {
+		fun onCandidates(words: List<String>)
+	}
 
-	fun setOnWordDecoded(listener: OnWordDecoded?) {
-		this.onWordDecoded = listener
+	private var onSuggestions: OnGlideSuggestions? = null
+	private var onMidSuggestions: OnGlideMidSuggestions? = null
+	private var prefixSupplier: () -> String = { "" }
+	private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+	private var lastMidGestureScheduled: Long = 0L
+	// Single-threaded executor for the classifier. Keeps gestures sequential (no race between
+	// two analyses) and off the main thread so the UI stays responsive during scoring.
+	private val classifierExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+		Thread(r, "tt9-glide-classifier").apply { priority = Thread.NORM_PRIORITY - 1 }
+	}
+
+	fun setOnGlideSuggestions(listener: OnGlideSuggestions?) {
+		this.onSuggestions = listener
+	}
+
+	fun setOnGlideMidSuggestions(listener: OnGlideMidSuggestions?) {
+		this.onMidSuggestions = listener
+	}
+
+	/**
+	 * Hook the container calls at the start of every gesture to pull the currently locked QWERTY
+	 * prefix from the IME. When non-empty, glide candidates are constrained to words that start
+	 * with the prefix and are matched against the suffix only.
+	 */
+	fun setPrefixSupplier(supplier: (() -> String)?) {
+		this.prefixSupplier = supplier ?: { "" }
 	}
 
 	init {
@@ -82,10 +115,15 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 		val langId = language.id
 		if (langId == boundLangId) return
 		boundLangId = langId
+		// Lazy-load the learned per-key touch offsets for the new language so they're ready by
+		// the first tap.
+		KeyOffsetAdapter.ensureLoaded(context, langId)
 		Tt9WordProvider.load(language) { provider ->
-			post {
-				if (boundLangId != langId) return@post
-				if (!provider.isLoaded) return@post
+			if (!provider.isLoaded) return@load
+			// Pruner build loops every word. Do it on the classifier worker, not main, otherwise
+			// language switches stutter for hundreds of ms.
+			classifierExecutor.execute {
+				if (boundLangId != langId) return@execute
 				activeProvider = provider
 				classifier.setWordProvider(provider)
 			}
@@ -117,18 +155,43 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 		detector = GlideTypingGesture.Detector(keyWidthDp, density).apply {
 			registerListener(object : GlideTypingGesture.Listener {
 				override fun onGlideAddPoint(point: GlideTypingGesture.Detector.Position) {
+					if (trailPoints.isEmpty()) {
+						// First point of a fresh gesture — refresh the locked prefix from the IME.
+						classifier.setWordPrefix(prefixSupplier())
+						trailStartTimeMs = System.currentTimeMillis()
+					}
 					classifier.addGesturePoint(point)
-					if (trailPoints.isEmpty()) trailStartTimeMs = System.currentTimeMillis()
 					trailPoints.add(point)
 					invalidate()
+					// Mid-gesture suggestion refresh (worker-thread). Debounced: only the last
+					// add-point in each MID_GESTURE_THROTTLE_MS window kicks off a query.
+					// Snapshot the gesture on the main thread, score on the worker, post back.
+					if (onMidSuggestions != null && trailPoints.size >= MID_GESTURE_MIN_POINTS) {
+						val now = System.currentTimeMillis()
+						if (now - lastMidGestureScheduled >= MID_GESTURE_THROTTLE_MS) {
+							lastMidGestureScheduled = now
+							val snapshot = classifier.cloneInternalGesture()
+							classifierExecutor.execute {
+								val live = classifier.analyzeGesture(snapshot, MID_GESTURE_CANDIDATE_COUNT)
+								if (live.isNotEmpty()) {
+									mainHandler.post { onMidSuggestions?.onCandidates(live) }
+								}
+							}
+						}
+					}
 				}
 
 				override fun onGlideComplete(data: GlideTypingGesture.Detector.PointerData) {
-					val suggestions = classifier.getSuggestions(3, true)
-					classifier.clear()
+					// Snapshot the gesture and clear the live one atomically on the main thread,
+					// THEN dispatch scoring to the worker. The user's finger may already be down
+					// for the next gesture by the time scoring finishes — having a snapshot lets
+					// addGesturePoint keep mutating the live gesture safely in parallel.
+					val snapshot = classifier.snapshotGestureAndClear()
 					clearTrail()
-					val top = suggestions.firstOrNull() ?: return
-					onWordDecoded?.onWord(top)
+					classifierExecutor.execute {
+						val suggestions = classifier.analyzeGesture(snapshot, GLIDE_CANDIDATE_COUNT)
+						mainHandler.post { onSuggestions?.onCandidates(suggestions) }
+					}
 				}
 
 				override fun onGlideCancelled() {
@@ -162,6 +225,46 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 			visit(child)
 			if (child is ViewGroup) walk(child, visit)
 		}
+	}
+
+	override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+		// Apply the per-key learned touch offset to the DOWN event ONLY (so the right child key
+		// receives the touch). Subsequent MOVE / UP events keep their raw coords so the glide
+		// gesture detector sees the user's actual finger path. The applied offset is small
+		// (capped at ~32px) — well below the gesture-detector's distance threshold, so it can't
+		// trigger a phantom gesture.
+		if (ev.actionMasked == MotionEvent.ACTION_DOWN || ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+			applyKeyOffsetCorrection(ev)
+		}
+		return super.dispatchTouchEvent(ev)
+	}
+
+	private fun applyKeyOffsetCorrection(ev: MotionEvent) {
+		if (boundLangId == UNBOUND_LANG) return
+		val keys = classifier.layoutKeys
+		if (keys.isEmpty()) return
+		val idx = ev.actionIndex
+		val x = ev.getX(idx)
+		val y = ev.getY(idx)
+		val nearest = findNearestKey(x, y, keys) ?: return
+		val offset = KeyOffsetAdapter.getOffset(boundLangId, nearest.code.toChar())
+		if (offset[0] != 0f || offset[1] != 0f) {
+			// Subtract the learned offset: if user systematically taps "right of A", a touch
+			// that lands "right of A" gets shifted left so it falls inside A's hitbox.
+			ev.offsetLocation(-offset[0], -offset[1])
+		}
+	}
+
+	private fun findNearestKey(x: Float, y: Float, keys: List<SwipeKey>): SwipeKey? {
+		var best: SwipeKey? = null
+		var bestSq = Float.MAX_VALUE
+		for (k in keys) {
+			val dx = k.centerX - x
+			val dy = k.centerY - y
+			val sq = dx * dx + dy * dy
+			if (sq < bestSq) { bestSq = sq; best = k }
+		}
+		return best
 	}
 
 	override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
@@ -221,5 +324,16 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 
 	companion object {
 		private const val UNBOUND_LANG: Int = -1
+		// How many candidates to surface to the suggestion strip. The strip itself is scrollable so
+		// the user can pick #2/#3 when shapes collide.
+		private const val GLIDE_CANDIDATE_COUNT: Int = 5
+		// Fewer candidates during the gesture — the list is more volatile, more is just noise.
+		private const val MID_GESTURE_CANDIDATE_COUNT: Int = 3
+		// Min gesture points before a mid-gesture query is worth running. Below ~12 sampled
+		// points the path is too short for the classifier to do anything meaningful.
+		private const val MID_GESTURE_MIN_POINTS: Int = 12
+		// Mid-gesture throttle window in ms. Classifier now runs on the worker thread so the UI
+		// doesn't block; this is just rate-limiting so the suggestion strip doesn't churn.
+		private const val MID_GESTURE_THROTTLE_MS: Long = 150L
 	}
 }

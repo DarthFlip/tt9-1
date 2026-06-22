@@ -114,6 +114,20 @@ public class StaticMainView {
 		}
 	}
 
+	/**
+	 * Hide just the keys panel without tearing down the IME (suggestion strip stays). Used to
+	 * dismiss the on-screen QWERTY as soon as the user reaches for the physical keypad; calling
+	 * {@code requestHideSelf} instead would fire {@code onFinishInputView}, which resets
+	 * mInputMode/composingWord and swallows the in-progress keypress.
+	 */
+	public void setKeysCollapsed(boolean collapsed) {
+		if (main != null) main.setKeysCollapsed(collapsed);
+	}
+
+	public boolean isKeysCollapsed() {
+		return main != null && main.isKeysCollapsed();
+	}
+
 	public void showTextEditingPalette() {
 		if (main != null) {
 			main.showTextEditingPalette();

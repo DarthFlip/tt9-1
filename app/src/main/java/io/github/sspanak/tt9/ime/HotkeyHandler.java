@@ -434,7 +434,11 @@ public abstract class HotkeyHandler extends CommandHandler {
 
 
 	public boolean onKeyNextInputMode(boolean validateOnly) {
-		if (allowedInputModes.size() == 1) {
+		final boolean qwertyAvailable = mainView != null && settings != null && settings.isMainLayoutQwerty();
+		final boolean keysCollapsed = !qwertyAvailable || mainView.isKeysCollapsed();
+		final boolean cycleHasMultiplePositions = allowedInputModes.size() > 1 || qwertyAvailable;
+
+		if (!cycleHasMultiplePositions) {
 			return false;
 		}
 
@@ -442,8 +446,33 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return true;
 		}
 
+		// The cycle is: T9 → ABC → 123 → on-screen-QWERTY → T9 ...
+		// When QWERTY is the configured layout, treat "keys expanded" as a virtual mode
+		// position. Pressing # while open collapses the keys and lands on the first allowed
+		// physical mode. Pressing # while collapsed advances physical modes; once we'd wrap
+		// back to the first physical mode, we expand the keys instead.
+		if (qwertyAvailable && !keysCollapsed) {
+			mainView.setKeysCollapsed(true);
+			final int firstId = allowedInputModes.isEmpty() ? mInputMode.getId() : allowedInputModes.get(0);
+			if (firstId != mInputMode.getId()) {
+				setInputMode(firstId);
+			}
+			forceShowWindow();
+			return true;
+		}
+
 		suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout()); // restart the timer
 		final int nextModeId = nextInputMode();
+		final boolean wrappingToFirst = !allowedInputModes.isEmpty()
+			&& nextModeId == allowedInputModes.get(0)
+			&& mInputMode.getId() == allowedInputModes.get(allowedInputModes.size() - 1);
+		if (qwertyAvailable && wrappingToFirst) {
+			// Instead of advancing back to the first mode, hit the on-screen-QWERTY cycle slot.
+			mainView.setKeysCollapsed(false);
+			forceShowWindow();
+			return true;
+		}
+
 		if (nextModeId != mInputMode.getId()) {
 			setInputMode(nextModeId);
 		}

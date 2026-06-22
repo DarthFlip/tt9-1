@@ -30,7 +30,13 @@ class GlideTypingGesture {
 
 		companion object {
 			private const val MAX_DETECT_TIME = 500
-			private const val VELOCITY_THRESHOLD = 0.10 // dp per ms
+			// Engagement threshold — half what florisboard ships (0.10) so users who spell out
+			// a word at ~5cm/s still get recognised as gliding instead of falling through to
+			// per-key taps.
+			private const val VELOCITY_THRESHOLD = 0.05 // dp per ms
+			// Distance-only fallback: even if the user pauses mid-swipe (velocity drops), once
+			// the finger has travelled this far from the down point we know it's a gesture.
+			private const val DISTANCE_FALLBACK_MULTIPLIER = 1.5f
 		}
 
 		private fun px2dp(px: Float): Float = px / density
@@ -67,7 +73,13 @@ class GlideTypingGesture {
 						if (pointerData.isActuallyGesture == null) {
 							val dist = px2dp(pointerData.positions[0].dist(pos))
 							val time = (System.currentTimeMillis() - pointerData.startTime) + 1
-							if (dist > keySizeDp && (dist / time) > VELOCITY_THRESHOLD) {
+							// Two engagement paths:
+							//   1. Fast enough swipe: distance > 1 key + velocity > threshold.
+							//   2. Far enough swipe regardless of speed (user paused mid-glide):
+							//      distance > 1.5× key. Pure distance, no velocity gate.
+							val velocityOk = dist > keySizeDp && (dist / time) > VELOCITY_THRESHOLD
+							val distanceOk = dist > keySizeDp * DISTANCE_FALLBACK_MULTIPLIER
+							if (velocityOk || distanceOk) {
 								pointerData.isActuallyGesture = true
 								pointerData.positions.take(pointerData.positions.size - 1).forEach { point ->
 									listeners.forEach { it.onGlideAddPoint(point) }

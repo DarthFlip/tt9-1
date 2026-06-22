@@ -169,6 +169,7 @@ abstract public class InputMode {
 	public boolean isTyping() { return !digitSequence.isEmpty(); }
 	public int getFirstKey() { return digitSequence.isEmpty() ? -1 : digitSequence.charAt(0) - '0'; }
 	public int getSequenceLength() { return digitSequence.length(); } // The number of key presses for the current word.
+	@NonNull public String getDigitSequence() { return digitSequence; } // The full T9 digit sequence for the current word (read-only view).
 	public int getAutoAcceptTimeout() { return autoAcceptTimeout; }
 	public void setSequence(@NonNull String sequence) { digitSequence = sequence; }
 

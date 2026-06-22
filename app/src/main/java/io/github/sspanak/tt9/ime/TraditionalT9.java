@@ -77,6 +77,11 @@ public class TraditionalT9 extends PremiumHandler {
 
 	@Override
 	public void onStartInputView(EditorInfo inputField, boolean restarting) {
+		// Auto-hide can leave the keys panel collapsed (after the user typed physically). On
+		// EVERY IME-show, reset it BEFORE delegating to onStart — which may return early on a
+		// restart and skip initUi where the existing showKeyboard() restore lives. Without this,
+		// the user sees blank space where the keyboard should be after switching modes.
+		if (mainView != null) mainView.setKeysCollapsed(false);
 		onStart(inputField, restarting);
 	}
 
