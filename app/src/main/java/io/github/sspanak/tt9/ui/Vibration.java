@@ -12,7 +12,18 @@ import io.github.sspanak.tt9.ui.main.keys.SoftKeyNumber;
 import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
-public record Vibration(@NonNull SettingsStore settings, @Nullable View view) {
+public final class Vibration {
+	@NonNull private final SettingsStore settings;
+	@Nullable private final View view;
+
+	public Vibration(@NonNull SettingsStore settings, @Nullable View view) {
+		this.settings = settings;
+		this.view = view;
+	}
+
+	@NonNull public SettingsStore settings() { return settings; }
+	@Nullable public View view() { return view; }
+
 	public static int getNoVibration() {
 		return -1;
 	}

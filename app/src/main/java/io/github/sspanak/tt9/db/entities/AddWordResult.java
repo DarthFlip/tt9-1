@@ -6,12 +6,23 @@ import androidx.annotation.NonNull;
 
 import io.github.sspanak.tt9.R;
 
-public record AddWordResult(int statusCode, String word) {
+public final class AddWordResult {
 	public static final int CODE_SUCCESS = 0;
 	public static final int CODE_BLANK_WORD = 1;
 	public static final int CODE_INVALID_LANGUAGE = 2;
 	public static final int CODE_WORD_EXISTS = 3;
 	public static final int CODE_GENERAL_ERROR = 666;
+
+	private final int statusCode;
+	private final String word;
+
+	public AddWordResult(int statusCode, String word) {
+		this.statusCode = statusCode;
+		this.word = word;
+	}
+
+	public int statusCode() { return statusCode; }
+	public String word() { return word; }
 
 	public String toHumanFriendlyString(Context context) {
 		return switch (statusCode) {

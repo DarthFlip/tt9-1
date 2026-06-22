@@ -2,7 +2,18 @@ package io.github.sspanak.tt9.db.sqlite;
 
 import io.github.sspanak.tt9.languages.EmojiLanguage;
 
-public record Migration(String query, int oldVersion) {
+public final class Migration {
+	private final String query;
+	private final int oldVersion;
+
+	public Migration(String query, int oldVersion) {
+		this.query = query;
+		this.oldVersion = oldVersion;
+	}
+
+	public String query() { return query; }
+	public int oldVersion() { return oldVersion; }
+
 	static final Migration[] WORDS = {
 		new Migration(
 			"ALTER TABLE " + Tables.LANGUAGES_META + " ADD COLUMN fileHash TEXT NOT NULL DEFAULT 0",
