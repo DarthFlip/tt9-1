@@ -87,6 +87,18 @@ public class TraditionalT9 extends PremiumHandler {
 
 
 	@Override
+	public void onWindowShown() {
+		super.onWindowShown();
+		// Belt-and-braces: tapping the SAME text field again doesn't always fire
+		// onStartInputView (framework treats it as "already focused"), so the collapsed-state
+		// reset above doesn't run. onWindowShown is called every time the IME window becomes
+		// visible — reset here so a user who collapsed via physical typing can re-show simply
+		// by re-tapping the field.
+		if (mainView != null) mainView.setKeysCollapsed(false);
+	}
+
+
+	@Override
 	public void onFinishInputView(boolean finishingInput) {
 		super.onFinishInputView(finishingInput);
 		onFinishTyping();

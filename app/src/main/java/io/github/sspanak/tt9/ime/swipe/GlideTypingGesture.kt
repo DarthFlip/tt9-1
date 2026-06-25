@@ -81,11 +81,19 @@ class GlideTypingGesture {
 							val distanceOk = dist > keySizeDp * DISTANCE_FALLBACK_MULTIPLIER
 							if (velocityOk || distanceOk) {
 								pointerData.isActuallyGesture = true
+								io.github.sspanak.tt9.util.Logger.d(
+									"tt9/Glide",
+									"detector engaged: dist=${dist}dp velocityOk=$velocityOk distanceOk=$distanceOk time=${time}ms bufferedPoints=${pointerData.positions.size}"
+								)
 								pointerData.positions.take(pointerData.positions.size - 1).forEach { point ->
 									listeners.forEach { it.onGlideAddPoint(point) }
 								}
 							} else if (time > MAX_DETECT_TIME) {
 								pointerData.isActuallyGesture = false
+								io.github.sspanak.tt9.util.Logger.d(
+									"tt9/Glide",
+									"detector timed out: dist=${dist}dp time=${time}ms — treated as tap"
+								)
 							}
 						}
 

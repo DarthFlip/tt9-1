@@ -434,11 +434,7 @@ public abstract class HotkeyHandler extends CommandHandler {
 
 
 	public boolean onKeyNextInputMode(boolean validateOnly) {
-		final boolean qwertyAvailable = mainView != null && settings != null && settings.isMainLayoutQwerty();
-		final boolean keysCollapsed = !qwertyAvailable || mainView.isKeysCollapsed();
-		final boolean cycleHasMultiplePositions = allowedInputModes.size() > 1 || qwertyAvailable;
-
-		if (!cycleHasMultiplePositions) {
+		if (allowedInputModes.size() == 1) {
 			return false;
 		}
 
@@ -446,33 +442,14 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return true;
 		}
 
-		// The cycle is: T9 → ABC → 123 → on-screen-QWERTY → T9 ...
-		// When QWERTY is the configured layout, treat "keys expanded" as a virtual mode
-		// position. Pressing # while open collapses the keys and lands on the first allowed
-		// physical mode. Pressing # while collapsed advances physical modes; once we'd wrap
-		// back to the first physical mode, we expand the keys instead.
-		if (qwertyAvailable && !keysCollapsed) {
-			mainView.setKeysCollapsed(true);
-			final int firstId = allowedInputModes.isEmpty() ? mInputMode.getId() : allowedInputModes.get(0);
-			if (firstId != mInputMode.getId()) {
-				setInputMode(firstId);
-			}
-			forceShowWindow();
-			return true;
-		}
-
+		// Originally tried to include "QWERTY open" as a virtual cycle position alongside the
+		// input modes — but it caused the bug where pressing # collapsed the keys and the user
+		// couldn't get them back when the same text field was re-tapped (framework doesn't fire
+		// onStartInputView on re-focus of the same field). # now only cycles input modes
+		// (T9 → ABC → 123 → loop). Keyboard visibility is controlled by the auto-hide-on-
+		// physical pattern + tap-to-expand affordance + Settings dropdown.
 		suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout()); // restart the timer
 		final int nextModeId = nextInputMode();
-		final boolean wrappingToFirst = !allowedInputModes.isEmpty()
-			&& nextModeId == allowedInputModes.get(0)
-			&& mInputMode.getId() == allowedInputModes.get(allowedInputModes.size() - 1);
-		if (qwertyAvailable && wrappingToFirst) {
-			// Instead of advancing back to the first mode, hit the on-screen-QWERTY cycle slot.
-			mainView.setKeysCollapsed(false);
-			forceShowWindow();
-			return true;
-		}
-
 		if (nextModeId != mInputMode.getId()) {
 			setInputMode(nextModeId);
 		}

@@ -39,17 +39,24 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 	private var wordsReady = false
 	private var wordPrefix: String = ""
 
-	val ready: Boolean get() = layoutReady && wordsReady && pruner != null
+	override val ready: Boolean get() = layoutReady && wordsReady && pruner != null
 
 	companion object {
-		private const val PRUNING_LENGTH_THRESHOLD = 8.42
-		// Reference calibration: SHAPE_STD/LOCATION_STD were tuned against this point count.
-		// Actual sampling at gesture time scales with gesture length; SHAPE_STD scales with it
-		// so the Gaussian likelihood stays comparable across short and long gestures.
-		private const val REFERENCE_SAMPLES: Int = 200
+		// Tightening to 5.0 was too aggressive — gestures shorter than ~30pt returned 0 candidates
+		// because no word's ideal length fit within 5×radius. The continuous length-match penalty
+		// in the fine pass already differentiates similar-shape candidates, so the pruner doesn't
+		// need to be aggressive. Back to 7.0 (between Florisboard's permissive 8.42 and the
+		// over-tight 5.0). Empirical: never see all-empty results at 7.0.
+		private const val PRUNING_LENGTH_THRESHOLD = 7.0
+		// Halved from 200 → 100 to bring the warm-cache gesture cost under 200ms. With the
+		// cached resampled+normalized ideal gestures (cachedResampledIdeal), 100 sample points
+		// still captures the shape; the bottleneck was the per-point distance/direction math.
+		private const val REFERENCE_SAMPLES: Int = 100
 		private const val SAMPLES_PER_KEY: Float = 25f
 		private const val MIN_SAMPLES: Int = 80
 		private const val MAX_SAMPLES: Int = 240
+		// Kept for documentation; the Gaussian probability path was replaced with a direct
+		// 1/(1+distance) score that avoids the expensive pow+exp on every word.
 		private const val SHAPE_STD = 22.08f
 		private const val LOCATION_STD = 0.5109f
 		private const val SUGGESTION_CACHE_SIZE = 5
@@ -59,17 +66,54 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// closeness to the actual key center. Pattern from AnySoftKeyboard's GestureTypingDetector.
 		private const val START_KEY_CANDIDATES: Int = 5
 		private const val END_KEY_CANDIDATES: Int = 5
-		// Proximity penalty: penalises candidates whose word-start/end falls further from the
-		// user's gesture start/end. End factor is HALVED — users systematically overshoot at
-		// the end of a swipe. Tuned per AnySoftKeyboard (PROXIMITY_PENALTY_FACTOR=0.000667,
-		// END_PROXIMITY_PENALTY_FACTOR=0.000333).
-		private const val START_PROXIMITY_PENALTY_FACTOR: Float = 0.000667f
-		private const val END_PROXIMITY_PENALTY_FACTOR: Float = 0.000333f
-		// Direction penalty: each gesture segment whose direction disagrees with the ideal-path
-		// direction at the same position contributes more to total shape distance.
-		// cosθ=+1 (same direction) → 1×, cosθ=0 (perpendicular) → 2×, cosθ=-1 (opposite) → 3×.
-		// Catches the failure mode where shape distance accepts a wildly wrong-direction path.
-		private const val DIRECTION_PENALTY_FACTOR: Float = 1.0f
+		// Proximity penalty factors. AnySoftKeyboard's original (0.000667, 0.000333) are
+		// calibrated for their Gaussian-product confidence which lands in the 10^4 range; with
+		// our direct 1/(1+d) score confidence is in single digits, so the penalty was lost in
+		// the noise (a 50px end miss added 0.83 to a 1316 confidence — invisible). Bumped 100×
+		// so end-key accuracy actually moves ranking. End factor stays HALVED — users
+		// systematically overshoot at swipe-out.
+		private const val START_PROXIMITY_PENALTY_FACTOR: Float = 0.0667f
+		private const val END_PROXIMITY_PENALTY_FACTOR: Float = 0.0333f
+		// Direction penalty: each segment whose direction disagrees with the ideal-path
+		// direction contributes more to total shape distance. cosθ=+1 → 1×, cosθ=0 → 1+F×,
+		// cosθ=-1 → 1+2F×. Bringing it down from 1.0 → 0.3 because the high value was over-
+		// penalising legitimate paths that wobble between letters.
+		private const val DIRECTION_PENALTY_FACTOR: Float = 0.3f
+		// Length-match bonus: penalises candidates whose ideal-gesture LENGTH (in pixels) differs
+		// from the user's gesture length. pruneByLength is binary in/out; this is the continuous
+		// signal that lets 5-letter "hello" beat 4-letter "hero" when the user clearly drew a
+		// longer zigzag path. Penalty is added to confidence; magnitude scales with the difference
+		// divided by key radius so it's comparable to the proximity-penalty factors.
+		private const val LENGTH_MATCH_PENALTY_FACTOR: Float = 0.5f
+		// Frequency floor — bumped from +1 to +5 so rare-word penalty isn't so harsh. Combined
+		// with log compression below, common words still consistently win ties without drowning
+		// out the shape signal.
+		private const val FREQUENCY_FLOOR: Float = 5f
+		// N-gram context boost: when a candidate appears in MindReader's current next-word
+		// predictions (bigram/trigram lookahead based on prior committed words), its score
+		// gets multiplied by this. 4× is enough to lift a contextually-correct word over a
+		// shape-similar wrong one — e.g. "happy birthday" makes "birthday" beat "boundary".
+		private const val CONTEXT_BOOST: Float = 4f
+		// Round C: corner-point two-pass scoring.
+		// Coarse pass extracts direction-change corners from both user and ideal gestures and
+		// scores them with a simple per-point distance. Cheap (corners are ~5-15 points vs 100
+		// resampled) — used to pick the top-N candidates that then run through the full fine
+		// pass. AnySoftKeyboard pattern; CURVATURE_THRESHOLD is the complement of their 170°.
+		private const val CORNER_THRESHOLD_RADIANS: Float = 0.52f  // ~30°
+		// Fixed sample count for corner sequences — different words have different corner counts
+		// (5-15 typically) but we need uniform-length comparison. Small enough that the coarse
+		// pass is genuinely cheap.
+		private const val CORNER_SAMPLE_COUNT: Int = 16
+		// Top-N candidates carried from coarse → fine pass. Tightened 300 → 100 because user
+		// was seeing 1-2 second waits on cold-cache gestures (kosher firmware kills the IME
+		// service between sessions, defeating the warm-cache speedup). Fewer fine-pass words
+		// means lower worst-case latency. If correct candidates start being dropped at the
+		// coarse stage we can bump this back up.
+		private const val COARSE_TOP_N: Int = 100
+		// Minimum post-prune candidate set size before the coarse pass is even worth running.
+		// Lowered 400 → 150 so smaller candidate sets ALSO benefit from the coarse-prune
+		// speedup. Below 150 the fine pass alone is genuinely fast.
+		private const val COARSE_PASS_MIN_SET_SIZE: Int = 150
 	}
 
 	override fun addGesturePoint(position: GlideTypingGesture.Detector.Position) {
@@ -84,11 +128,23 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		}
 	}
 
+	// Per-word, per-prefix-length cache of resampled+normalized ideal gestures. The ideal path
+	// for any given word on a fixed keyboard layout never changes, so doing the resample +
+	// normalizeByBoxSide every gesture is pure waste — that was the bulk of the 1-2 sec per-
+	// gesture cost. Cleared on setLayout / setWordProvider. Keyed by "word|prefixLen|variant".
+	private val cachedResampledIdeal = java.util.concurrent.ConcurrentHashMap<String, List<Pair<Gesture, Gesture>>>()
+
+	// Round C: parallel cache of CORNER-extracted-and-resampled ideal gestures. Used by the
+	// coarse pass to pick the top-N candidates that get the full fine pass.
+	private val cachedCornerIdeal = java.util.concurrent.ConcurrentHashMap<String, List<Gesture>>()
+
 	override fun setLayout(keys: List<SwipeKey>) {
 		if (this.keys == keys && layoutReady) return
 
 		keysByCharacter.clear()
 		this.keys.clear()
+		cachedResampledIdeal.clear()
+		cachedCornerIdeal.clear()
 		keys.forEach {
 			keysByCharacter[it.code] = it
 			this.keys.add(it)
@@ -105,7 +161,15 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		this.words = provider.getListOfWords()
 		this.wordsReady = true
 		lruSuggestionCache.evictAll()
+		cachedResampledIdeal.clear()
+		cachedCornerIdeal.clear()
 		maybeInitPruner()
+		// Removed: precacheIdealGestures(). Each cached Gesture allocates two 500-float arrays
+		// (4KB per Gesture), but resampled gestures only use 100 points — 80% waste. For 5000
+		// words × ~3 Gesture variants, pre-filling blew through the 268MB heap → OOM crashes.
+		// Lazy caching at query time still works, just first-gesture pays the cost. To revisit:
+		// either shrink the Gesture backing arrays to fit exact size, or precache only top-N
+		// most frequent words.
 	}
 
 	override fun setWordPrefix(prefix: String) {
@@ -126,7 +190,9 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		for (position in pointerData.positions) addGesturePoint(position)
 	}
 
-	private val lruSuggestionCache = LruCache<Pair<Gesture, Int>, List<String>>(SUGGESTION_CACHE_SIZE)
+	// Cache key: (gesture, maxCount, contextHash). Context is part of the key because the same
+	// gesture with different prior-word context can yield different rankings.
+	private val lruSuggestionCache = LruCache<Triple<Gesture, Int, Int>, List<String>>(SUGGESTION_CACHE_SIZE)
 	override fun getSuggestions(maxSuggestionCount: Int, gestureCompleted: Boolean): List<String> {
 		return analyzeGesture(this.gesture, maxSuggestionCount)
 	}
@@ -136,45 +202,50 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 	 * passing it in) so the caller can clear or mutate the classifier's own state in parallel.
 	 * All other state read here (keys, pruner, words, wordPrefix) is set up at layout / load
 	 * time and stable during a gesture's lifetime.
+	 *
+	 * [contextWords] (lowercase) are MindReader's current next-word predictions based on the
+	 * preceding text; candidates that match get a CONTEXT_BOOST multiplier in scoring. Empty
+	 * set = no context bias.
 	 */
-	fun analyzeGesture(snapshot: Gesture, maxSuggestionCount: Int): List<String> {
+	override fun analyzeGesture(snapshot: Gesture, maxSuggestionCount: Int, contextWords: Set<String>): List<String> {
 		if (!ready) return emptyList()
 		if (snapshot.pointCount < 2) return emptyList()
+		// Cache key includes contextWords because the same gesture with different context can
+		// yield different rankings. Use hashCode of the set as a compact discriminator.
+		val cacheKey = Triple(snapshot, maxSuggestionCount, contextWords.hashCode())
 		synchronized(lruSuggestionCache) {
-			lruSuggestionCache.get(Pair(snapshot, maxSuggestionCount))?.let { return it }
+			lruSuggestionCache.get(cacheKey)?.let { return it }
 		}
-		val suggestions = unCachedGetSuggestions(maxSuggestionCount, snapshot)
+		val suggestions = unCachedGetSuggestions(maxSuggestionCount, snapshot, contextWords)
 		synchronized(lruSuggestionCache) {
-			lruSuggestionCache.put(Pair(snapshot.clone(), maxSuggestionCount), suggestions)
+			lruSuggestionCache.put(Triple(snapshot.clone(), maxSuggestionCount, contextWords.hashCode()), suggestions)
 		}
 		return suggestions
 	}
 
 	/** Take a copy of the current gesture buffer for off-main scoring, then clear the live one. */
-	fun snapshotGestureAndClear(): Gesture {
+	override fun snapshotGestureAndClear(): Gesture {
 		val snap = gesture.clone()
 		gesture.clear()
 		return snap
 	}
 
 	/** Clone the live gesture without clearing — used by mid-gesture preview scoring. */
-	fun cloneInternalGesture(): Gesture = gesture.clone()
+	override fun cloneInternalGesture(): Gesture = gesture.clone()
 
-	private fun unCachedGetSuggestions(maxSuggestionCount: Int, gesture: Gesture): List<String> {
+	private fun unCachedGetSuggestions(maxSuggestionCount: Int, gesture: Gesture, contextWords: Set<String> = emptySet()): List<String> {
 		val candidates = arrayListOf<String>()
 		val candidateWeights = arrayListOf<Float>()
 		val key = keys.firstOrNull() ?: return listOf()
 		val radius = min(key.height, key.width)
 		val activePruner = pruner ?: return listOf()
 
-		// Adaptive sampling: scale point count with gesture length so short gestures aren't
-		// over-sampled and long ones aren't under-sampled. SHAPE_STD scales with point count
-		// (it's a sum of per-point distances) to keep the Gaussian calibration consistent.
-		val gestureLen = gesture.getLength()
-		val samplingPoints = ((gestureLen / key.width) * SAMPLES_PER_KEY)
-			.toInt()
-			.coerceIn(MIN_SAMPLES, MAX_SAMPLES)
-		val shapeStd = SHAPE_STD * (samplingPoints.toFloat() / REFERENCE_SAMPLES)
+		// Fixed sampling count so per-word ideal gestures can be cached (see
+		// cachedResampledIdeal). Adaptive sampling broke caching — each gesture's different
+		// samplingPoints invalidated every cached ideal. The fixed REFERENCE_SAMPLES was already
+		// the calibration anchor, so this is a no-op for accuracy but unlocks a ~10× speedup.
+		val samplingPoints = REFERENCE_SAMPLES
+		val shapeStd = SHAPE_STD
 
 		val activePrefix = wordPrefix
 		val prefixLen = activePrefix.length
@@ -198,6 +269,51 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 			remainingWords = activePruner.pruneByLength(gesture, remainingWords, keysByCharacter, keys)
 		}
 
+		// Round C: cheap coarse pass over the post-prune candidate set. Reduce each candidate's
+		// ideal path to corners only, score against the user's gesture corners with a simple
+		// Euclidean per-point distance. Keep the top COARSE_TOP_N for the expensive fine pass.
+		// Skipped when the candidate set is small enough that the fine pass can chew through it
+		// directly — corner matching is imprecise and risks dropping the right answer.
+		if (remainingWords.size > COARSE_PASS_MIN_SET_SIZE) {
+			val userCorners = gesture.cornerPoints(CORNER_THRESHOLD_RADIANS)
+			val userCornersResampled = if (userCorners.pointCount >= 2)
+				userCorners.resample(CORNER_SAMPLE_COUNT)
+			else null
+			if (userCornersResampled != null) {
+				// Use a parallel array of (word, coarseDistance) so we can sort then trim.
+				val coarseScored = ArrayList<Pair<String, Float>>(remainingWords.size)
+				for (word in remainingWords) {
+					val cachedKey = "$word|$prefixLen"
+					val cornerVariants = cachedCornerIdeal.getOrPut(cachedKey) {
+						val rawIdeals = Gesture.generateIdealGestures(word, keysByCharacter, prefixLen)
+						rawIdeals.mapNotNull { ideal ->
+							val corners = ideal.cornerPoints(CORNER_THRESHOLD_RADIANS)
+							if (corners.pointCount < 2) return@mapNotNull null
+							corners.resample(CORNER_SAMPLE_COUNT)
+						}
+					}
+					if (cornerVariants.isEmpty()) continue
+					var best = Float.POSITIVE_INFINITY
+					for (cv in cornerVariants) {
+						val d = simpleEuclideanDistance(userCornersResampled, cv)
+						if (d < best) best = d
+					}
+					coarseScored.add(word to best)
+				}
+				// SAFETY: only overwrite remainingWords when the coarse pass actually produced
+				// useful filtering. If 0 words yielded corners (tiny gestures where most words'
+				// ideal paths can't produce ≥2 direction-change points), keep the full
+				// pre-coarse set so the fine pass still has something to score.
+				if (coarseScored.isNotEmpty()) {
+					coarseScored.sortBy { it.second }
+					val kept = if (coarseScored.size > COARSE_TOP_N)
+						coarseScored.subList(0, COARSE_TOP_N) else coarseScored
+					remainingWords = ArrayList(kept.size)
+					for ((w, _) in kept) remainingWords.add(w)
+				}
+			}
+		}
+
 		// Track the worst shapeDistance still in the kept candidate list so we can early-exit
 		// further per-word scoring. Updated alongside candidateWeights. Pattern from
 		// AnySoftKeyboard's `failFastThreshold`.
@@ -206,18 +322,36 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 		for (i in remainingWords.indices) {
 			val word = remainingWords[i]
-			val idealGestures = Gesture.generateIdealGestures(word, keysByCharacter, prefixLen)
+			val cachedKey = "$word|$prefixLen"
+			val resampledPairs = cachedResampledIdeal.getOrPut(cachedKey) {
+				val raw = Gesture.generateIdealGestures(word, keysByCharacter, prefixLen)
+				raw.mapNotNull { ideal ->
+					if (ideal.pointCount < 2) return@mapNotNull null
+					val resampled = ideal.resample(samplingPoints)
+					val normalized = resampled.normalizeByBoxSide()
+					Pair(resampled, normalized)
+				}
+			}
+			if (resampledPairs.isEmpty()) continue
 
-			for (idealGesture in idealGestures) {
-				if (idealGesture.pointCount < 2) continue
-				val wordGesture = idealGesture.resample(samplingPoints)
-				val normalizedGesture: Gesture = wordGesture.normalizeByBoxSide()
+			for ((wordGesture, normalizedGesture) in resampledPairs) {
 				val shapeDistance = calcShapeDistance(normalizedGesture, normalizedUserGesture, failFastShapeDistance)
 				if (shapeDistance.isInfinite()) continue  // bailed early — word can't beat current top-N
 				val locationDistance = calcLocationDistance(wordGesture, userGesture)
-				val shapeProbability = calcGaussianProbability(shapeDistance, 0.0f, shapeStd)
-				val locationProbability = calcGaussianProbability(locationDistance, 0.0f, LOCATION_STD * radius)
-				val frequency = 255f * wordProvider.getFrequencyForWord(word)
+				// Replaced Gaussian probability (pow+exp per word, ~50% of total per-word cost)
+				// with a direct 1/(1+d) score that preserves ordering. The Gaussian's calibration
+				// to a specific std-dev is irrelevant once we just need a monotonically decreasing
+				// score for sort ordering. radius is divided into locationDistance so the score
+				// is comparable across screen sizes.
+				val shapeProbability = 1f / (1f + shapeDistance)
+				val locationProbability = 1f / (1f + locationDistance / (radius + 1f))
+				// Log-compressed frequency. Raw frequency × 255 had the most-common word at 255
+				// and rare at ~5 — a 50× range that drowned out shape distance signal. Log
+				// compression keeps common-word preference (still ~log(256) = 5.5 vs log(6) ~ 1.8
+				// for the floor) but at a magnitude that combines reasonably with shape scores
+				// in the 0.1–1.0 range.
+				val rawFrequency = 255f * wordProvider.getFrequencyForWord(word)
+				val frequency = kotlin.math.ln(1f + rawFrequency)
 				// Soft proximity penalty: distance² from gesture start/end to the word's
 				// actual first/last key, halved at the end (users overshoot on swipe-out).
 				// Added directly to confidence (smaller = better), so further-off keys score worse
@@ -235,7 +369,19 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 					val edy = gesture.getLastY() - lastKey.centerY
 					proximityPenalty += END_PROXIMITY_PENALTY_FACTOR * (edx * edx + edy * edy)
 				}
-				val confidence = 1.0f / (shapeProbability * locationProbability * (frequency + 1f)) + proximityPenalty
+				// Length-match penalty: prefer candidates whose ideal-gesture length matches the
+				// user's gesture length. wordGesture.getLength() is the cached ideal in pixels;
+				// userGesture.getLength() is the user's. Without this, a straight 4-letter
+				// "hero" beat a zigzag 5-letter "hello" because shape alone can't tell apart
+				// similar-direction paths of different lengths.
+				val lengthMismatch = kotlin.math.abs(wordGesture.getLength() - userGesture.getLength()) / (radius + 1f)
+				val lengthPenalty = LENGTH_MATCH_PENALTY_FACTOR * lengthMismatch
+				// N-gram context boost: if MindReader's bigram lookahead predicts this word, divide
+				// confidence by CONTEXT_BOOST (smaller = better in this codebase's sort order).
+				// Free win when user types in sentences: "happy birthday" makes "birthday" win
+				// over shape-similar "boundary" even when shape-distance favours the latter.
+				val contextMultiplier = if (contextWords.isNotEmpty() && word.lowercase() in contextWords) CONTEXT_BOOST else 1f
+				val confidence = (1.0f / (shapeProbability * locationProbability * (frequency + FREQUENCY_FLOOR) * contextMultiplier)) + proximityPenalty + lengthPenalty
 
 				var candidateDistanceSortedIndex = 0
 				var duplicateIndex = Int.MAX_VALUE
@@ -276,8 +422,21 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 	override fun clear() { gesture.clear() }
 
+	/**
+	 * Cheap pairwise distance between two same-length gestures, no direction-penalty, no
+	 * normalization. Used by Round-C coarse pass on corner-resampled paths.
+	 */
+	private fun simpleEuclideanDistance(g1: Gesture, g2: Gesture): Float {
+		var total = 0f
+		val n = min(g1.pointCount, g2.pointCount)
+		for (i in 0 until n) {
+			total += Gesture.distance(g1.getX(i), g1.getY(i), g2.getX(i), g2.getY(i))
+		}
+		return total
+	}
+
 	/** Read-only view of the currently configured key bounds. Used by the touch-offset adapter. */
-	val layoutKeys: List<SwipeKey> get() = keys
+	override val layoutKeys: List<SwipeKey> get() = keys
 
 	/**
 	 * Return the [SwipeKey] for the character at [index] in [word], or null if either the index
@@ -482,6 +641,39 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		val isEmpty: Boolean get() = size == 0
 
 		val pointCount: Int get() = size
+
+		/**
+		 * Reduce this gesture to direction-change points. A point is a corner if the angle
+		 * between the incoming and outgoing segments exceeds [thresholdRadians]. First and last
+		 * points are always included. Used by the Round-C coarse pass — corners correlate with
+		 * intended letters because users naturally decelerate at letter positions.
+		 */
+		fun cornerPoints(thresholdRadians: Float): Gesture {
+			val out = Gesture()
+			if (size == 0) return out
+			out.addPoint(xs[0], ys[0])
+			if (size <= 2) {
+				if (size == 2) out.addPoint(xs[1], ys[1])
+				return out
+			}
+			for (i in 1 until size - 1) {
+				val dx1 = xs[i] - xs[i - 1]
+				val dy1 = ys[i] - ys[i - 1]
+				val dx2 = xs[i + 1] - xs[i]
+				val dy2 = ys[i + 1] - ys[i]
+				val m1 = sqrt(dx1 * dx1 + dy1 * dy1)
+				val m2 = sqrt(dx2 * dx2 + dy2 * dy2)
+				if (m1 == 0f || m2 == 0f) continue
+				val cos = ((dx1 * dx2 + dy1 * dy2) / (m1 * m2)).coerceIn(-1f, 1f)
+				// Angle between segments. 0 = straight, π = U-turn. Threshold typical ~0.5
+				// (≈30° change from straight) catches real letter transitions while ignoring
+				// touch jitter.
+				val angle = kotlin.math.acos(cos)
+				if (angle > thresholdRadians) out.addPoint(xs[i], ys[i])
+			}
+			out.addPoint(xs[size - 1], ys[size - 1])
+			return out
+		}
 
 		fun addPoint(x: Float, y: Float) {
 			if (size >= MAX_SIZE) return

@@ -9,6 +9,7 @@ apply from: 'validate-languages.gradle'
 apply from: 'help-tools.gradle'
 apply from: 'status-icon-tools.gradle'
 apply from: 'version-tools.gradle'
+apply from: 'download-neural-model.gradle'
 
 
 tasks.register('validateLanguages') {
@@ -146,16 +147,19 @@ android {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'false'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
 		}
 		lite {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
 		}
 		premium {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'true'
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
 		}
 	}
 
@@ -204,4 +208,11 @@ dependencies {
 	implementation 'androidx.preference:preference:1.2.1'
 	implementation 'com.google.android.material:material:1.13.0'
 	premiumImplementation 'com.android.billingclient:billing:8.3.0'
+
+	// Neural swipe decoder dependencies — bundled in all flavors. FUTO's encoder .pte ships
+	// in app/src/main/assets/models/ (see that README for license posture). Adds ~13 MB to
+	// the APK; even lite stays well under the previous 219 MB full-flavor baseline.
+	implementation 'org.pytorch:executorch-android:1.0.0'
+	implementation 'com.facebook.soloader:soloader:0.10.5'
+	implementation 'com.facebook.fbjni:fbjni:0.7.0'
 }

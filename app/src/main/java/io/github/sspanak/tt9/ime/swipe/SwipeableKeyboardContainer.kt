@@ -31,7 +31,11 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 	defStyleAttr: Int = 0,
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-	private val classifier = StatisticalGlideTypingClassifier()
+	// Neural decoder in full flavor (FUTO weights + ExecuTorch); statistical fallback elsewhere.
+	// Both implement GlideTypingClassifier so the rest of this class is implementation-agnostic.
+	private val classifier: GlideTypingClassifier =
+		if (io.github.sspanak.tt9.BuildConfig.HAS_NEURAL_DECODER) NeuralGlideDecoder(context)
+		else StatisticalGlideTypingClassifier()
 	private var detector: GlideTypingGesture.Detector? = null
 	private var layoutCollected = false
 	private var boundLangId: Int = UNBOUND_LANG
@@ -71,9 +75,30 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 
 	private var onSuggestions: OnGlideSuggestions? = null
 	private var onMidSuggestions: OnGlideMidSuggestions? = null
+	// Plain Runnable — zero-arg Kotlin `fun interface`s sometimes don't SAM-convert from Java
+	// lambdas, but Runnable always does. Fires on the first point of every new gesture so the
+	// IME can auto-commit any pending suggestion (with trailing space).
+	private var onGestureStarted: Runnable? = null
 	private var prefixSupplier: () -> String = { "" }
+	// Pulled per-gesture from the IME so MindReader's most recent next-word predictions can bias
+	// the classifier's ranking. The classifier multiplies in-context candidates' scores by 4×.
+	private var contextSupplier: () -> Set<String> = { emptySet() }
 	private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 	private var lastMidGestureScheduled: Long = 0L
+
+	// Moving-average smoothing of incoming gesture points. The Schok F1's cheap touch panel
+	// reports jittery sample-to-sample positions; smoothing kills spurious direction-changes
+	// before they confuse the classifier's direction-cosine penalty. Pattern from CleverKeys'
+	// ImprovedSwipeGestureRecognizer.applySmoothing.
+	private val smoothBuffer = ArrayList<GlideTypingGesture.Detector.Position>(SMOOTHING_WINDOW)
+	private fun smoothPoint(p: GlideTypingGesture.Detector.Position): GlideTypingGesture.Detector.Position {
+		smoothBuffer.add(p)
+		while (smoothBuffer.size > SMOOTHING_WINDOW) smoothBuffer.removeAt(0)
+		var sx = 0f; var sy = 0f
+		for (pt in smoothBuffer) { sx += pt.x; sy += pt.y }
+		val n = smoothBuffer.size.toFloat()
+		return GlideTypingGesture.Detector.Position(sx / n, sy / n)
+	}
 	// Single-threaded executor for the classifier. Keeps gestures sequential (no race between
 	// two analyses) and off the main thread so the UI stays responsive during scoring.
 	private val classifierExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -95,6 +120,14 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 	 */
 	fun setPrefixSupplier(supplier: (() -> String)?) {
 		this.prefixSupplier = supplier ?: { "" }
+	}
+
+	fun setContextSupplier(supplier: (() -> Set<String>)?) {
+		this.contextSupplier = supplier ?: { emptySet() }
+	}
+
+	fun setOnGestureStarted(callback: Runnable?) {
+		this.onGestureStarted = callback
 	}
 
 	init {
@@ -156,11 +189,20 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 			registerListener(object : GlideTypingGesture.Listener {
 				override fun onGlideAddPoint(point: GlideTypingGesture.Detector.Position) {
 					if (trailPoints.isEmpty()) {
-						// First point of a fresh gesture — refresh the locked prefix from the IME.
+						// First point of a fresh gesture. Notify the IME so it can commit
+						// any pending suggestion from a previous gesture (with trailing space)
+						// BEFORE this new gesture's mid-gesture preview starts overwriting
+						// composing text. Distinguishes "previous gesture committable" from
+						// "this gesture's mid-preview" which was the "hellohello" bug.
+						onGestureStarted?.run()
 						classifier.setWordPrefix(prefixSupplier())
 						trailStartTimeMs = System.currentTimeMillis()
+						smoothBuffer.clear()
 					}
-					classifier.addGesturePoint(point)
+					val smoothed = smoothPoint(point)
+					classifier.addGesturePoint(smoothed)
+					// Trail uses the raw point so the visual trail tracks the real finger; the
+					// smoothed copy goes to the classifier where jitter matters.
 					trailPoints.add(point)
 					invalidate()
 					// Mid-gesture suggestion refresh (worker-thread). Debounced: only the last
@@ -171,8 +213,9 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 						if (now - lastMidGestureScheduled >= MID_GESTURE_THROTTLE_MS) {
 							lastMidGestureScheduled = now
 							val snapshot = classifier.cloneInternalGesture()
+							val ctx = contextSupplier()
 							classifierExecutor.execute {
-								val live = classifier.analyzeGesture(snapshot, MID_GESTURE_CANDIDATE_COUNT)
+								val live = classifier.analyzeGesture(snapshot, MID_GESTURE_CANDIDATE_COUNT, ctx)
 								if (live.isNotEmpty()) {
 									mainHandler.post { onMidSuggestions?.onCandidates(live) }
 								}
@@ -187,10 +230,29 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 					// for the next gesture by the time scoring finishes — having a snapshot lets
 					// addGesturePoint keep mutating the live gesture safely in parallel.
 					val snapshot = classifier.snapshotGestureAndClear()
+					// Pull context on the main thread (MindReader access) and pass it to the
+					// worker — keeps the classifier purely off-main.
+					val ctx = contextSupplier()
+					io.github.sspanak.tt9.util.Logger.d(
+						"tt9/Glide",
+						"onGlideComplete: snapshot ${snapshot.pointCount} pts, classifier ready=${classifier.ready}, ctx=${ctx.size}"
+					)
 					clearTrail()
+					val startMs = System.currentTimeMillis()
 					classifierExecutor.execute {
-						val suggestions = classifier.analyzeGesture(snapshot, GLIDE_CANDIDATE_COUNT)
-						mainHandler.post { onSuggestions?.onCandidates(suggestions) }
+						val suggestions = classifier.analyzeGesture(snapshot, GLIDE_CANDIDATE_COUNT, ctx)
+						val elapsed = System.currentTimeMillis() - startMs
+						io.github.sspanak.tt9.util.Logger.d(
+							"tt9/Glide",
+							"analyzeGesture returned ${suggestions.size} in ${elapsed}ms: $suggestions"
+						)
+						mainHandler.post {
+							onSuggestions?.onCandidates(suggestions)
+							io.github.sspanak.tt9.util.Logger.d(
+								"tt9/Glide",
+								"posted ${suggestions.size} candidates to IME"
+							)
+						}
 					}
 				}
 
@@ -329,6 +391,9 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 		private const val GLIDE_CANDIDATE_COUNT: Int = 5
 		// Fewer candidates during the gesture — the list is more volatile, more is just noise.
 		private const val MID_GESTURE_CANDIDATE_COUNT: Int = 3
+		// Touch-smoothing window. Average of last N raw points before feeding to classifier.
+		// 3 absorbs panel jitter without lagging behind real motion.
+		private const val SMOOTHING_WINDOW: Int = 3
 		// Min gesture points before a mid-gesture query is worth running. Below ~12 sampled
 		// points the path is too short for the classifier to do anything meaningful.
 		private const val MID_GESTURE_MIN_POINTS: Int = 12

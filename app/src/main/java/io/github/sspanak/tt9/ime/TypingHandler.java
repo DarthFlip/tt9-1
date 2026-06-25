@@ -278,6 +278,42 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 
 	/**
+	 * Called by the glide container at the FIRST point of every new gesture. Commits any
+	 * pending suggestion (from a previous, completed gesture) with a trailing space — so
+	 * word-after-word swiping produces "hello world", not "hellohello" or "helloworld".
+	 * Safe to call when there's nothing pending: it's a no-op.
+	 */
+	public void onGlideGestureStarted() {
+		if (suggestionOps.isEmpty()) return;
+		final String lastWord = suggestionOps.acceptIncomplete();
+		if (lastWord == null || lastWord.isEmpty()) return;
+		mInputMode.onAcceptSuggestion(lastWord);
+		if (mLanguage != null && new Text(lastWord).isAlphabetic()) {
+			textField.setText(Characters.getSpace(mLanguage));
+			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lastWord.toLowerCase());
+		}
+		composingWord.clear();
+	}
+
+
+	/**
+	 * MindReader's current next-word predictions, lowercased and deduped — passed to the glide
+	 * classifier so contextually-likely words get a score boost. Empty set when MindReader has
+	 * no usable context (start of input, no recent words).
+	 */
+	@NonNull
+	public java.util.Set<String> getGlideContextWords() {
+		final java.util.ArrayList<String> guesses = mindReader.getGuesses();
+		if (guesses == null || guesses.isEmpty()) return java.util.Collections.emptySet();
+		final java.util.HashSet<String> out = new java.util.HashSet<>(guesses.size());
+		for (String g : guesses) {
+			if (g != null && !g.isEmpty()) out.add(g.toLowerCase());
+		}
+		return out;
+	}
+
+
+	/**
 	 * True if [key] is a letter-bearing T9 digit (2..9 in the standard T9 convention). Used to
 	 * decide whether a digit press should grow the shared composing buffer.
 	 */
@@ -401,8 +437,20 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 
 	public boolean onGlideSuggestions(@Nullable java.util.List<String> rawWords) {
+		io.github.sspanak.tt9.util.Logger.d(
+			"tt9/Glide",
+			"onGlideSuggestions received: raw=" + rawWords + " passthrough=" + InputModeKind.isPassthrough(mInputMode)
+		);
 		if (rawWords == null || rawWords.isEmpty()) return false;
 		if (InputModeKind.isPassthrough(mInputMode)) return false;
+
+		// Removed: auto-commit-previous-gesture logic.
+		// It was meant to add spaces between word-after-word glide commits, but the mid-gesture
+		// preview also populates suggestionOps + composing text from the SAME gesture. The
+		// auto-commit couldn't tell "previous gesture's suggestion" from "this gesture's
+		// in-progress preview" and would commit the preview right before re-setting it,
+		// producing "hellohello" from a single swipe. Spaces between words should come from
+		// the user's explicit tap on a suggestion / press space — same as T9.
 
 		// Enforce position locks AND ambiguous-digit constraints first — context reordering
 		// shouldn't be able to resurrect a candidate that violates what the user has already

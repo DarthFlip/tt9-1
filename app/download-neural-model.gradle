@@ -1,0 +1,70 @@
+// Downloads FUTO's swipe-typing model weights to app/src/main/assets/models/ so the
+// NeuralGlideDecoder can load them at runtime. The weights are under FUTO Model Weights
+// License 1.0 (see docs/neural-decoder/FUTO_WEIGHTS_LICENSE.md) — not GPL-3 compatible,
+// so we don't commit them to this GPL-3 repo. They're fetched fresh on first build instead.
+//
+// Wired into preBuild via the apply block below, so any assemble task triggers it once
+// (idempotent — skips if file exists with the expected SHA).
+
+def neuralModelDir = file("${projectDir}/src/main/assets/models")
+def neuralModelFile = new File(neuralModelDir, "model_fp32.pte")
+def neuralScoringFile = new File(neuralModelDir, "scoring.json")
+def neuralModelSha256 = "725242bab5d14345e96ff214e8de2bfbc1f962c232d320df9c24cb82ffd1fbaf"
+def neuralModelUrl = "https://huggingface.co/futo-org/futo-swipe/resolve/main/honorable_sturgeon/model_fp32.pte"
+def neuralScoringUrl = "https://huggingface.co/futo-org/futo-swipe/resolve/main/scoring.json"
+
+tasks.register('downloadNeuralModel') {
+	outputs.file neuralModelFile
+	outputs.file neuralScoringFile
+
+	doLast {
+		neuralModelDir.mkdirs()
+
+		def needsModel = !neuralModelFile.exists() || sha256Of(neuralModelFile) != neuralModelSha256
+		if (needsModel) {
+			logger.lifecycle("downloading FUTO swipe model weights (${neuralModelUrl})")
+			downloadTo(neuralModelUrl, neuralModelFile)
+			def actual = sha256Of(neuralModelFile)
+			if (actual != neuralModelSha256) {
+				throw new GradleException(
+					"SHA256 mismatch for ${neuralModelFile.name}: expected ${neuralModelSha256}, got ${actual}"
+				)
+			}
+			logger.lifecycle("FUTO model weights are under FUTO Model Weights License 1.0 — see docs/neural-decoder/FUTO_WEIGHTS_LICENSE.md")
+		}
+
+		if (!neuralScoringFile.exists()) {
+			logger.lifecycle("downloading FUTO scoring config (${neuralScoringUrl})")
+			downloadTo(neuralScoringUrl, neuralScoringFile)
+		}
+	}
+}
+
+androidComponents {
+	onVariants(selector().all()) { variant ->
+		def variantName = variant.name.capitalize()
+		tasks.matching { it.name == "merge${variantName}Assets" }.configureEach {
+			dependsOn(downloadNeuralModel)
+		}
+	}
+}
+
+static String sha256Of(File f) {
+	def md = java.security.MessageDigest.getInstance("SHA-256")
+	f.withInputStream { is ->
+		def buf = new byte[8192]
+		int n
+		while ((n = is.read(buf)) != -1) md.update(buf, 0, n)
+	}
+	return md.digest().collect { String.format('%02x', it) }.join('')
+}
+
+static void downloadTo(String urlStr, File dest) {
+	def url = new URL(urlStr)
+	def conn = url.openConnection()
+	conn.setInstanceFollowRedirects(true)
+	conn.connect()
+	conn.inputStream.withCloseable { input ->
+		dest.withOutputStream { out -> out << input }
+	}
+}

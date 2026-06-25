@@ -182,6 +182,16 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 		// Pull the QWERTY-tap-locked prefix at the start of every gesture so glide can match the
 		// suffix only and continue a half-typed word.
 		swipeHost.setPrefixSupplier(() -> tt9 != null ? tt9.getLockedPrefix() : "");
+		// Pull MindReader's next-word predictions per gesture and pass them to the classifier
+		// as a context-boost set. Lifts contextually-correct candidates above shape-similar
+		// wrong ones (e.g. "happy birthday" → "birthday" beats "boundary").
+		swipeHost.setContextSupplier(() -> tt9 != null ? tt9.getGlideContextWords() : java.util.Collections.emptySet());
+		// On the first point of every new gesture, commit any pending previous-gesture
+		// suggestion (with trailing space). Enables word-after-word swiping without the
+		// "hellohello" mid-gesture-confusion bug — see TypingHandler.onGlideGestureStarted.
+		swipeHost.setOnGestureStarted(() -> {
+			if (tt9 != null) tt9.onGlideGestureStarted();
+		});
 		// Route the candidate list through tt9's existing suggestion strip instead of force-
 		// committing top-1 with an auto-space. The user can scroll/pick alternatives and the
 		// commit pipeline (which triggers MindReader + the live-frequency bump) runs as usual.

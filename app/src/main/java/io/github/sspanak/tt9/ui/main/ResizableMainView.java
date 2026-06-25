@@ -112,6 +112,12 @@ public class ResizableMainView extends StaticMainView implements View.OnAttachSt
 
 
 	public void onResize(float currentY) {
+		// QWERTY layout has a fixed shape (a full on-screen keyboard); the resize gesture
+		// otherwise falls through to shrink() and silently downgrades the layout to
+		// LAYOUT_SMALL because changeHeight() fails on QWERTY. That's the "accidental drag
+		// killed my QWERTY keyboard" bug — guard against it at every gesture entry point.
+		if (tt9.getSettings().isMainLayoutQwerty()) return;
+
 		int resizeDelta = (int) (resizeStartY - currentY);
 		resizeStartY = currentY;
 
@@ -135,6 +141,9 @@ public class ResizableMainView extends StaticMainView implements View.OnAttachSt
 	public void onSnap() {
 		SettingsStore settings = tt9.getSettings();
 
+		// Same guard as onResize — QWERTY has no snap state.
+		if (settings.isMainLayoutQwerty()) return;
+
 		if (settings.isMainLayoutTray()) {
 			expand(1);
 		} else if (settings.isMainLayoutSmall()) {
@@ -151,6 +160,8 @@ public class ResizableMainView extends StaticMainView implements View.OnAttachSt
 		}
 
 		final SettingsStore settings = tt9.getSettings();
+		// Defensive: QWERTY has no expand semantics — never change layout from here.
+		if (settings.isMainLayoutQwerty()) return;
 		final int largeSize = settings.getPreferredLargeLayout() == SettingsStore.LAYOUT_CLASSIC ? heightClassic : heightNumpad;
 
 		if (settings.isMainLayoutTray()) {
@@ -177,6 +188,10 @@ public class ResizableMainView extends StaticMainView implements View.OnAttachSt
 		if (main == null || settings.isMainLayoutTray()) {
 			return;
 		}
+		// Defensive: QWERTY has no shrink semantics — never change layout from here.
+		// This is the line that USED TO silently change layout to LAYOUT_SMALL when a drag in
+		// QWERTY landed here via changeHeight returning false. Guard at the source.
+		if (settings.isMainLayoutQwerty()) return;
 
 		final int largeSize = settings.getPreferredLargeLayout() == SettingsStore.LAYOUT_CLASSIC ? heightClassic : heightNumpad;
 
