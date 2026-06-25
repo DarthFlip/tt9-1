@@ -6,6 +6,8 @@
 	<string name="system_night_mode" translatable="false">n</string>
 
 	<string name="app_settings">TT9 Settings</string>
+	<string name="pref_neural_credit_title">Swipe typing</string>
+	<string name="pref_neural_credit_summary">Powered by FUTO Swipe technology (model weights under FUTO Model Weights License 1.0)</string>
 	<string name="click_here_for_preview">Click here for preview</string>
 	<string name="completed">Completed</string>
 	<string name="delete">Delete</string>

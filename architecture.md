@@ -38,33 +38,38 @@ formal commercial distribution.
 
 ## 2. Model architecture
 
-### 2.1 Input representation (8 channels × 64 timesteps)
+### 2.1 Tensor contract (verified from FUTO README)
 
-Per gesture, build an `[8 × 64]` tensor. Channels:
+We bundle FUTO's pre-trained `honorable_sturgeon/model_fp32.pte` as-is.
+The encoder accepts:
 
-| Channel | Symbol | Computation |
-|---|---|---|
-| 0 | x | Normalized to [-0.5, 0.5] via existing `Gesture.normalizeByBoxSide()` |
-| 1 | y | Same, y-axis |
-| 2 | ẋ | First derivative via 7-tap Savitzky-Golay filter |
-| 3 | ẏ | Same |
-| 4 | ẍ | Second derivative via 7-tap Savitzky-Golay |
-| 5 | ÿ | Same |
-| 6 | speed | `√(ẋ² + ẏ²)`, clipped to [0, 5] then scaled to [0, 1] |
-| 7 | curvature | `dθ/dt` where `θ = atan2(ẏ, ẋ)`, clamped to [-2, 2] |
+| Tensor | Direction | Shape | Notes |
+|---|---|---|---|
+| `features` | input | `[1, 2, 64]` | Raw (x, y) resampled to 64 points, normalized to layout bounds |
+| `layout_keys` | input | `[1, 64, 2]` | Per-key (x, y) centers, padded to 64 slots |
+| `layout_mask` | input | `[1, 64]` | Float — 1.0 for real key slots, 0.0 for padding |
+| `log_emissions` | output | `[1, 32, 65]` | Log-probs over 64 keys + 1 CTC blank |
+| `coefficients` | output | `[1, 32, 64]` | Spectral coefficients (optional `magic_macaw` decoder) |
+| `lambda` | output | `[1, 32, 1]` | Intention gate (optional `magic_macaw` decoder) |
 
-**Temporal axis**: raw `MotionEvent` samples (variable rate, 60-120 Hz
-on the F1) → linear resample to 60 Hz uniform → linear resample to
-exactly 64 timesteps (FUTO uses 64; matches our budget for the conv stack).
+We use only `log_emissions`. The spectral / intention outputs are
+discarded because we don't ship `magic_macaw`.
 
-**Implementation reuse**: `Gesture.normalizeByBoxSide()` covers
-channels 0-1. Channels 2-7 are new — implement in a new
-`GestureFeatures.kt` helper that the decoder calls once per gesture
-snapshot before model invocation. Savitzky-Golay coefficients are static
-(7-tap polynomial degree 2, derivative orders 1 and 2 from the standard
-table); we hard-code them.
+**Feature engineering is internal to the model.** The .pte graph contains
+the Savitzky-Golay + velocity/acceleration/curvature derivation as a fixed
+prefix — we just pass raw normalized (x, y). This is what makes FUTO's
+checkpoint a drop-in: no Kotlin-side feature math, no risk of training/
+inference skew.
 
-### 2.2 Encoder: 1D Temporal CNN
+**Layout agnosticism is a runtime input.** `layout_keys` flows from
+`GestureResampler.buildLayoutTensors(SwipeKey list)` — recomputed once per
+`bindLanguage()` for English / Hebrew / T9 / anything. No per-language
+model file.
+
+**Temporal axis**: raw `MotionEvent` samples → cumulative-arc-length
+resample to exactly 64 (x, y) points via `GestureResampler.resampleToBuffer`.
+
+### 2.2 Encoder: 1D Temporal CNN (informational — we don't build it)
 
 Stack of 8 dilated depthwise-separable convolution blocks, ConvNeXt-v2
 style:
@@ -260,19 +265,16 @@ available).
 
 ## 6. Files this design produces
 
-| Phase | Path | Purpose |
-|---|---|---|
-| 2 | `training/model.py` | PyTorch architecture |
-| 2 | `training/dataset.py` | FUTO dataset loader + augmentation |
-| 2 | `training/train.py` | Training loop |
-| 2 | `training/export_onnx.py` | Export trained checkpoint to ONNX |
-| 3 | `training/checkpoints/encoder_int8.onnx` | Final quantized model (artifact, not in git) |
-| 4 | `app/src/main/java/io/github/sspanak/tt9/ime/swipe/NeuralGlideDecoder.kt` | Implements `GlideTypingClassifier` |
-| 4 | `app/src/main/java/io/github/sspanak/tt9/ime/swipe/GestureFeatures.kt` | Savitzky-Golay + 8-channel tensor builder |
-| 4 | `app/src/main/java/io/github/sspanak/tt9/ime/swipe/LayoutBasis.kt` | Computes Φ from key positions |
-| 4 | `app/src/main/java/io/github/sspanak/tt9/ime/swipe/LexiconTrie.kt` | Beam-search trie |
-| 4 | `app/src/main/java/io/github/sspanak/tt9/ime/swipe/BeamSearch.kt` | Trie-constrained beam decode |
-| 4 | `app/src/full/assets/models/glide_encoder_int8.onnx` | The model |
+| Path | Purpose |
+|---|---|
+| `app/download-neural-model.gradle` | Build-time SHA256-verified download of FUTO weights |
+| `app/src/main/java/io/github/sspanak/tt9/ime/swipe/NeuralGlideDecoder.kt` | Implements `GlideTypingClassifier`; loads ExecuTorch module + drives encoder/beam-search |
+| `app/src/main/java/io/github/sspanak/tt9/ime/swipe/GestureResampler.kt` | Resamples raw gesture to `[1,2,64]` features + builds `[1,64,2]` layout / `[1,64]` mask tensors |
+| `app/src/main/java/io/github/sspanak/tt9/ime/swipe/LexiconTrie.kt` | `HashMap<Char, Node>` prefix trie (alphabet-agnostic) |
+| `app/src/main/java/io/github/sspanak/tt9/ime/swipe/BeamSearch.kt` | Trie-constrained CTC beam search width=50 |
+| `app/src/main/assets/models/model_fp32.pte` (downloaded, not in git) | FUTO encoder weights, 2.5 MB |
+| `docs/neural-decoder/MODEL_README.md` | Asset documentation |
+| `docs/neural-decoder/FUTO_WEIGHTS_LICENSE.md` | FUTO Model Weights License 1.0 verbatim |
 
 ---
 

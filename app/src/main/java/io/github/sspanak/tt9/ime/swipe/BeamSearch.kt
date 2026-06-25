@@ -9,21 +9,18 @@
  *
  * Hyperparameters mirror scoring.json["encoder:honorable_sturgeon"] from FUTO. We accept them
  * verbatim — they were tuned on a held-out validation set FUTO ran (Optuna, 3k trials per paper).
+ *
+ * The decoder is alphabet-agnostic: it walks the trie's actual children (HashMap<Char, Node>)
+ * and looks up each char's keyboard-key index via the layout-built charToKeyIndex map, so it
+ * works for English / Hebrew / Cyrillic without modification.
  */
 package io.github.sspanak.tt9.ime.swipe
 
 import kotlin.math.ln
-import kotlin.math.min
 
-/**
- * @param keyToChar maps the model's per-timestep argmax index `[0, numKeys)` to the lowercase
- *                  char of the corresponding key (e.g. layout[i] → keyCenters[i] → which letter).
- *                  Index `numKeys` is the CTC blank — handled internally.
- */
 class BeamSearch(
 	private val beamWidth: Int = 50,
 	private val gammaFrequency: Float = 0.4056f, // scoring.json gamma (frequency weight)
-	private val lambdaContext: Float = 0.0176f, // intentionally tiny; we override with our own bonus
 	private val contextBonus: Float = 1.5f, // additive log-bonus for MindReader hits
 ) {
 
@@ -33,8 +30,8 @@ class BeamSearch(
 	 *
 	 * @param logEmissions raw model output; column index `numKeys` is the CTC blank.
 	 * @param numKeys length of the actual key alphabet (FUTO's encoder = 64).
-	 * @param keyToChar index → lowercase char for each key in the layout (size == numKeys).
-	 *                  Unset entries (padded slots) should map to `0.toChar()`.
+	 * @param charToKeyIndex map char → key index `[0, numKeys)`. Built from the active layout
+	 *                       by NeuralGlideDecoder.setLayout.
 	 * @param trie lexicon trie built from the active language's word list.
 	 * @param lockedPrefix locked QWERTY prefix from the IME (already lowercased). Empty for a
 	 *                     full-word swipe; non-empty when continuing after QWERTY taps.
@@ -44,7 +41,7 @@ class BeamSearch(
 	fun decode(
 		logEmissions: Array<FloatArray>,
 		numKeys: Int,
-		keyToChar: CharArray,
+		charToKeyIndex: Map<Char, Int>,
 		trie: LexiconTrie,
 		lockedPrefix: String = "",
 		contextWords: Set<String> = emptySet(),
@@ -63,27 +60,20 @@ class BeamSearch(
 			val next = HashMap<BeamKey, BeamState>(beams.size * 4)
 
 			for (b in beams) {
-				// Option 1: emit blank (or repeat the last char without advancing the trie — CTC
-				// allows the same char on consecutive timesteps if separated by a blank).
+				// Option 1: emit blank — keeps us on the same trie node, resets the last-char
+				// barrier so a child with the same char as lastChar can extend next step.
 				val blankProb = b.logProb + emit[blankIdx]
 				addBeam(next, b.copy(logProb = blankProb, lastChar = NO_CHAR))
 
-				// Option 2: try every child of the current trie node. CTC says consecutive
-				// identical chars without a blank between them collapse to one — so if the child's
-				// char equals b.lastChar, this expansion only makes sense via the blank path above.
-				for (i in 0 until 26) {
-					val child = b.node.children[i] ?: continue
-					val ch = ('a' + i)
-					val keyIdx = findKeyIndex(ch, keyToChar, numKeys)
-					if (keyIdx < 0) continue
-					val pCh = emit[keyIdx]
-
-					// Direct extension — only valid if we're not stuck on the same char.
-					if (ch != b.lastChar) {
-						val newProb = b.logProb + pCh
-						val newSuffix = b.suffix + ch
-						addBeam(next, BeamState(child, newProb, ch, newSuffix))
-					}
+				// Option 2: extend by every trie child whose char is present in the layout.
+				// CTC says consecutive identical chars without a blank between them collapse to
+				// one — so we skip extension when ch == b.lastChar (that path only makes sense
+				// via the blank above).
+				for ((ch, child) in b.node.children) {
+					val keyIdx = charToKeyIndex[ch] ?: continue
+					if (ch == b.lastChar) continue
+					val newProb = b.logProb + emit[keyIdx]
+					addBeam(next, BeamState(child, newProb, ch, b.suffix + ch))
 				}
 			}
 
@@ -118,13 +108,6 @@ class BeamSearch(
 		if (existing == null || candidate.logProb > existing.logProb) {
 			map[key] = candidate
 		}
-	}
-
-	private fun findKeyIndex(ch: Char, keyToChar: CharArray, numKeys: Int): Int {
-		for (i in 0 until min(numKeys, keyToChar.size)) {
-			if (keyToChar[i] == ch) return i
-		}
-		return -1
 	}
 
 	private data class BeamState(

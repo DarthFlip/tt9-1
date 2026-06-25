@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="app_settings">Paramètres de TT9</string>
+	<string name="pref_neural_credit_title">Saisie par glissement</string>
+	<string name="pref_neural_credit_summary">Propulsé par la technologie FUTO Swipe (poids du modèle sous FUTO Model Weights License 1.0)</string>
 	<string name="pref_font_size_large">Grande</string>
 	<string name="completed">Fini</string>
 	<string name="loading">Chargement…</string>

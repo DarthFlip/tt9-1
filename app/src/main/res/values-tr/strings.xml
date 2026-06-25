@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="app_settings">TT9 Ayarlar</string>
+	<string name="pref_neural_credit_title">Kaydırarak yazma</string>
+	<string name="pref_neural_credit_summary">FUTO Swipe teknolojisi tarafından desteklenmektedir (model ağırlıkları FUTO Model Weights License 1.0 kapsamında)</string>
 	<string name="loading">Yükleniyor…</string>
 	<string name="error_unexpected">Beklenmeyen bir hata ile karşılaşıldı.</string>
 

@@ -6,6 +6,10 @@
  *
  * Built lazily on setWordProvider; rebuild is O(n_words × avg_word_len). For tt9's ~5k-30k word
  * languages on the F1 this is ~20-100ms, run once on the worker thread.
+ *
+ * Uses HashMap<Char, Node> rather than a fixed-size array so Hebrew / Cyrillic / any non-ASCII
+ * alphabet works without modification. Memory overhead vs an a-z array is ~150 bytes per node
+ * but for a 30k-word English lexicon (~70k nodes) that's a one-time 10 MB cost, well within budget.
  */
 package io.github.sspanak.tt9.ime.swipe
 
@@ -24,18 +28,9 @@ class LexiconTrie {
 			val word = raw.lowercase()
 			if (word.isEmpty()) continue
 			var node = newRoot
-			var skip = false
 			for (ch in word) {
-				if (ch !in 'a'..'z') { skip = true; break }
-				val idx = ch - 'a'
-				var child = node.children[idx]
-				if (child == null) {
-					child = Node()
-					node.children[idx] = child
-				}
-				node = child
+				node = node.children.getOrPut(ch) { Node() }
 			}
-			if (skip) continue
 			node.terminal = true
 			val freq = frequencyOf(raw).coerceAtLeast(1e-6f)
 			node.logFrequency = ln(freq + 1f)
@@ -56,15 +51,14 @@ class LexiconTrie {
 	fun walk(prefix: String): Node? {
 		var node = root
 		for (ch in prefix.lowercase()) {
-			if (ch !in 'a'..'z') return null
-			val child = node.children[ch - 'a'] ?: return null
+			val child = node.children[ch] ?: return null
 			node = child
 		}
 		return node
 	}
 
 	class Node {
-		val children: Array<Node?> = arrayOfNulls(26)
+		val children: HashMap<Char, Node> = HashMap()
 		var terminal: Boolean = false
 		var word: String? = null
 		var logFrequency: Float = 0f

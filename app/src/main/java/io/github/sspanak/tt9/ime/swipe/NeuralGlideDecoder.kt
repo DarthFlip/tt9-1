@@ -27,11 +27,14 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	private val gesture = StatisticalGlideTypingClassifier.Gesture()
 	private var wordProvider: WordProvider = EmptyWordProvider
-	private var keys: List<SwipeKey> = emptyList()
-	private var keyToChar: CharArray = CharArray(NUM_KEYS)
-	private var cachedLayoutKeys: FloatArray = FloatArray(NUM_KEYS * 2)
-	private var cachedLayoutMask: FloatArray = FloatArray(NUM_KEYS)
-	private var wordPrefix: String = ""
+	// All four are written from main thread (setLayout) and read from worker (runEncoder /
+	// BeamSearch). @Volatile so the worker sees a coherent snapshot — the encoder pipeline
+	// is atomic per-gesture; no intra-call mutation is expected.
+	@Volatile private var keys: List<SwipeKey> = emptyList()
+	@Volatile private var charToKeyIndex: Map<Char, Int> = emptyMap()
+	@Volatile private var cachedLayoutKeys: FloatArray = FloatArray(NUM_KEYS * 2)
+	@Volatile private var cachedLayoutMask: FloatArray = FloatArray(NUM_KEYS)
+	@Volatile private var wordPrefix: String = ""
 	private val trie = LexiconTrie()
 	private val beamSearch = BeamSearch()
 
@@ -57,14 +60,16 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 		val (k, m) = GestureResampler.buildLayoutTensors(keys, NUM_KEYS)
 		cachedLayoutKeys = k
 		cachedLayoutMask = m
-		// Map each layout slot index → its char so BeamSearch can translate model logits.
-		val charArr = CharArray(NUM_KEYS)
+		// Reverse map char → layout slot index. BeamSearch uses this to translate per-timestep
+		// model logits into the trie's char alphabet. First-occurrence wins if the same char
+		// appears on multiple keys (shouldn't happen on a real layout but defend anyway).
+		val map = HashMap<Char, Int>(keys.size)
 		for (i in keys.indices) {
 			if (i >= NUM_KEYS) break
 			val ch = keys[i].code.toChar().lowercaseChar()
-			charArr[i] = ch
+			if (ch !in map) map[ch] = i
 		}
-		keyToChar = charArr
+		charToKeyIndex = map
 	}
 
 	override fun setWordProvider(provider: WordProvider) {
@@ -115,7 +120,7 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 		val results = beamSearch.decode(
 			logEmissions = logEmissions,
 			numKeys = NUM_KEYS,
-			keyToChar = keyToChar,
+			charToKeyIndex = charToKeyIndex,
 			trie = trie,
 			lockedPrefix = wordPrefix,
 			contextWords = contextWords,
@@ -149,19 +154,43 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 				loaded
 			} catch (e: Throwable) {
 				Log.e(TAG, "failed to load model — neural decoder will return empty results", e)
+				// Cached .pte may be truncated from a previous interrupted extraction; wipe so
+				// the next attempt re-fetches a clean copy.
+				try { wipeCachedAsset() } catch (_: Throwable) {}
 				null
 			}
 		}
 	}
 
+	/**
+	 * Extract the .pte asset to internal storage atomically. Naive `copyTo(out)` is non-atomic —
+	 * if the IME process is killed mid-copy, `out` ends up truncated. Future cold-loads see
+	 * `length() > 0` and skip re-extraction → `Module.load` throws → silent empty results.
+	 * Fix: write to a sibling .tmp file, fsync, then rename. If `Module.load` fails downstream
+	 * (`ensureModuleLoaded`'s catch), the cached file is wiped so the next attempt re-extracts.
+	 */
 	private fun extractAssetIfNeeded(): String {
 		val out = File(context.filesDir, ASSET_FILENAME)
 		if (out.exists() && out.length() > 0) return out.absolutePath
+		val tmp = File(context.filesDir, "$ASSET_FILENAME.tmp")
+		if (tmp.exists()) tmp.delete()
 		context.assets.open("models/$ASSET_FILENAME").use { input ->
-			FileOutputStream(out).use { output -> input.copyTo(output) }
+			FileOutputStream(tmp).use { output ->
+				input.copyTo(output)
+				output.fd.sync()
+			}
+		}
+		if (!tmp.renameTo(out)) {
+			tmp.delete()
+			throw RuntimeException("rename of $tmp → $out failed")
 		}
 		Logger.d(TAG, "extracted asset to ${out.absolutePath} (${out.length()} bytes)")
 		return out.absolutePath
+	}
+
+	private fun wipeCachedAsset() {
+		val out = File(context.filesDir, ASSET_FILENAME)
+		if (out.exists()) out.delete()
 	}
 
 	/**
@@ -186,15 +215,17 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 			val layoutTensor = fromBlobFloat.invoke(null, cachedLayoutKeys, longArrayOf(1, NUM_KEYS.toLong(), 2))
 			val maskTensor = fromBlobFloat.invoke(null, cachedLayoutMask, longArrayOf(1, NUM_KEYS.toLong()))
 
-			val inputs = arrayOf(
-				evalueFrom.invoke(null, featuresTensor),
-				evalueFrom.invoke(null, layoutTensor),
-				evalueFrom.invoke(null, maskTensor),
-			)
+			// Build an EValue[] (NOT Object[]) so reflection's getMethod() matches forward's
+			// declared signature `EValue[] forward(EValue[] inputs)`.
+			val evalueArrayClass = java.lang.reflect.Array.newInstance(evalueClass, 0).javaClass
+			val inputs = java.lang.reflect.Array.newInstance(evalueClass, 3)
+			java.lang.reflect.Array.set(inputs, 0, evalueFrom.invoke(null, featuresTensor))
+			java.lang.reflect.Array.set(inputs, 1, evalueFrom.invoke(null, layoutTensor))
+			java.lang.reflect.Array.set(inputs, 2, evalueFrom.invoke(null, maskTensor))
 
 			val moduleClass = mod.javaClass
-			val executeMethod = moduleClass.getMethod("execute", inputs::class.java)
-			val outputs = executeMethod.invoke(mod, inputs) as Array<*>
+			val forwardMethod = moduleClass.getMethod("forward", evalueArrayClass)
+			val outputs = forwardMethod.invoke(mod, inputs) as Array<*>
 
 			// Output 0 is log_emissions [1, 32, 65]
 			val outEvalue = outputs[0] ?: return null
@@ -203,11 +234,16 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 			val getDataAsFloatArray = tensorClass.getMethod("getDataAsFloatArray")
 			val flat = getDataAsFloatArray.invoke(outTensor) as FloatArray
 
-			// Reshape [1, 32, 65] flat → [32][65]
-			val result = Array(TIMESTEPS_OUT) { t ->
+			val expectedSize = TIMESTEPS_OUT * (NUM_KEYS + 1)
+			if (flat.size != expectedSize) {
+				Log.e(TAG, "model output size mismatch: got ${flat.size}, expected $expectedSize")
+				return null
+			}
+
+			// Reshape [1, 32, 65] row-major flat → [32][65]
+			Array(TIMESTEPS_OUT) { t ->
 				FloatArray(NUM_KEYS + 1) { k -> flat[t * (NUM_KEYS + 1) + k] }
 			}
-			result
 		} catch (e: Throwable) {
 			Log.e(TAG, "encoder inference failed", e)
 			null
