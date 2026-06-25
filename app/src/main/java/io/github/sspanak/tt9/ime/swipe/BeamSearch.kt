@@ -1,127 +1,171 @@
 /*
  * Copyright (C) 2026 tt9 contributors. GPL-3.0.
  *
- * CTC beam search over the encoder's [time × (alphabet + blank)] log-emissions, constrained to
- * a lexicon trie. Pure Kotlin — no model dep — so it can be unit-tested with synthetic logits.
+ * Autoregressive beam search over CleverKeys' transformer decoder. The decoder is
+ * called once per step, returning per-position logits [num_beams, 20, 30]; we read
+ * the slice at the current step to expand each beam by the top-K valid next-tokens,
+ * prune to beamWidth, and stop early when every beam has emitted EOS.
  *
- * Post-decode rescoring layers in tt9's cross-mode signals: MindReader context bonus, locked-
- * prefix initialization, and log-frequency from the trie itself.
- *
- * Hyperparameters mirror scoring.json["encoder:honorable_sturgeon"] from FUTO. We accept them
- * verbatim — they were tuned on a held-out validation set FUTO ran (Optuna, 3k trials per paper).
- *
- * The decoder is alphabet-agnostic: it walks the trie's actual children (HashMap<Char, Node>)
- * and looks up each char's keyboard-key index via the layout-built charToKeyIndex map, so it
- * works for English / Hebrew / Cyrillic without modification.
+ * Lexicon trie constrains expansion — only tokens that extend a real word's prefix
+ * (or terminate at a word) are allowed. Locked-prefix tokens are force-decoded as
+ * the initial state.
  */
 package io.github.sspanak.tt9.ime.swipe
 
+import kotlin.math.exp
 import kotlin.math.ln
 
+/**
+ * The decoder function is injected so this class stays unit-testable with synthetic
+ * logits. Signature: given a packed `[numBeams, 20]` int32 token tensor, return the
+ * flat `[numBeams * 20 * 30]` row-major logits.
+ */
+typealias DecoderCall = (tokens: IntArray, numBeams: Int) -> FloatArray?
+
 class BeamSearch(
-	private val beamWidth: Int = 50,
-	private val gammaFrequency: Float = 0.4056f, // scoring.json gamma (frequency weight)
-	private val contextBonus: Float = 1.5f, // additive log-bonus for MindReader hits
+	private val beamWidth: Int = 4,
+	private val maxSteps: Int = 12,
+	private val lengthAlpha: Float = 1.0f,
+	private val freqWeight: Float = 0.4f,
+	private val contextBonus: Float = 1.5f,
 ) {
 
-	/**
-	 * Decode [logEmissions] (shape `[T × (numKeys + 1)]`, channels-last, log-space) into the top
-	 * [maxResults] words.
-	 *
-	 * @param logEmissions raw model output; column index `numKeys` is the CTC blank.
-	 * @param numKeys length of the actual key alphabet (FUTO's encoder = 64).
-	 * @param charToKeyIndex map char → key index `[0, numKeys)`. Built from the active layout
-	 *                       by NeuralGlideDecoder.setLayout.
-	 * @param trie lexicon trie built from the active language's word list.
-	 * @param lockedPrefix locked QWERTY prefix from the IME (already lowercased). Empty for a
-	 *                     full-word swipe; non-empty when continuing after QWERTY taps.
-	 * @param contextWords MindReader's next-word predictions for the current cursor position.
-	 *                     Candidates in this set get [contextBonus] added to their log score.
-	 */
 	fun decode(
-		logEmissions: Array<FloatArray>,
-		numKeys: Int,
-		charToKeyIndex: Map<Char, Int>,
+		runDecoder: DecoderCall,
 		trie: LexiconTrie,
 		lockedPrefix: String = "",
 		contextWords: Set<String> = emptySet(),
 		maxResults: Int = 5,
 	): List<String> {
-		val startNode = if (lockedPrefix.isEmpty()) trie.rootNode else trie.walk(lockedPrefix) ?: return emptyList()
-		val blankIdx = numKeys
+		// Initialize beams with SOS, then force-decode any locked-prefix tokens.
+		val initialTokens = mutableListOf(LexiconTrie.SOS)
+		var trieNode = trie.rootNode
+		for (ch in lockedPrefix.lowercase()) {
+			if (ch !in 'a'..'z') return emptyList()
+			val token = LexiconTrie.charToToken(ch)
+			val child = trie.step(trieNode, token) ?: return emptyList()
+			initialTokens.add(token)
+			trieNode = child
+		}
 
-		// Each beam state: trie node, accumulated log-prob, last-emitted char (for CTC collapse),
-		// and the word built so far (suffix; the prefix is prepended at result time).
-		var beams = mutableListOf(BeamState(startNode, 0f, NO_CHAR, ""))
-		val T = logEmissions.size
+		var beams = listOf(BeamState(initialTokens.toIntArray(), trieNode, 0f, finished = false))
 
-		for (t in 0 until T) {
-			val emit = logEmissions[t]
-			val next = HashMap<BeamKey, BeamState>(beams.size * 4)
+		for (step in 0 until maxSteps) {
+			val live = beams.filter { !it.finished }
+			if (live.isEmpty()) break
 
-			for (b in beams) {
-				// Option 1: emit blank — keeps us on the same trie node, resets the last-char
-				// barrier so a child with the same char as lastChar can extend next step.
-				val blankProb = b.logProb + emit[blankIdx]
-				addBeam(next, b.copy(logProb = blankProb, lastChar = NO_CHAR))
+			// Pack live beams into a [numBeams, 20] tensor; pad with 0 (PAD).
+			val numBeams = live.size
+			val packed = IntArray(numBeams * DECODER_SEQ_LEN)
+			for (i in live.indices) {
+				val tokens = live[i].tokens
+				val copyLen = minOf(tokens.size, DECODER_SEQ_LEN)
+				System.arraycopy(tokens, 0, packed, i * DECODER_SEQ_LEN, copyLen)
+				// remaining positions stay 0 (PAD)
+			}
 
-				// Option 2: extend by every trie child whose char is present in the layout.
-				// CTC says consecutive identical chars without a blank between them collapse to
-				// one — so we skip extension when ch == b.lastChar (that path only makes sense
-				// via the blank above).
-				for ((ch, child) in b.node.children) {
-					val keyIdx = charToKeyIndex[ch] ?: continue
-					if (ch == b.lastChar) continue
-					val newProb = b.logProb + emit[keyIdx]
-					addBeam(next, BeamState(child, newProb, ch, b.suffix + ch))
+			val flatLogits = runDecoder(packed, numBeams) ?: return emptyList()
+			val expectedSize = numBeams * DECODER_SEQ_LEN * VOCAB_SIZE
+			if (flatLogits.size != expectedSize) return emptyList()
+
+			val next = ArrayList<BeamState>(numBeams * (beamWidth + 1))
+			// Carry finished beams forward.
+			for (b in beams) if (b.finished) next.add(b)
+
+			for (i in live.indices) {
+				val beam = live[i]
+				// Read logits at the position of the LAST emitted real token — that slot's
+				// distribution predicts the NEXT token to emit.
+				val readPos = (beam.tokens.size - 1).coerceIn(0, DECODER_SEQ_LEN - 1)
+				val logitsOffset = (i * DECODER_SEQ_LEN + readPos) * VOCAB_SIZE
+				val logProbs = softmaxLog(flatLogits, logitsOffset)
+
+				// Build the candidate-next-token list: trie children (for valid prefix extension)
+				// plus EOS (allowed only after at least 1 letter emitted past SOS).
+				val emittedLetters = beam.tokens.size - 1
+				val candidates = ArrayList<Pair<Int, Float>>(8)
+				for (letterIdx in 0 until 26) {
+					val child = beam.trieNode.children[letterIdx] ?: continue
+					val token = LexiconTrie.FIRST_LETTER_TOKEN + letterIdx
+					candidates.add(token to logProbs[token])
+				}
+				if (emittedLetters >= 1 && beam.trieNode.terminal) {
+					candidates.add(LexiconTrie.EOS to logProbs[LexiconTrie.EOS])
+				}
+				if (candidates.isEmpty()) {
+					// Dead-end beam — drop it.
+					continue
+				}
+
+				// Take top-K candidates per beam to keep next-set manageable.
+				candidates.sortByDescending { it.second }
+				val k = minOf(candidates.size, beamWidth)
+				for (j in 0 until k) {
+					val (tok, lp) = candidates[j]
+					val newProb = beam.logProb + lp
+					val newTokens = IntArray(beam.tokens.size + 1)
+					System.arraycopy(beam.tokens, 0, newTokens, 0, beam.tokens.size)
+					newTokens[beam.tokens.size] = tok
+					val newNode = if (tok == LexiconTrie.EOS) beam.trieNode else trie.step(beam.trieNode, tok) ?: continue
+					val finished = tok == LexiconTrie.EOS
+					next.add(BeamState(newTokens, newNode, newProb, finished))
 				}
 			}
 
-			// Prune to top [beamWidth].
-			beams = next.values
-				.sortedByDescending { it.logProb }
-				.take(beamWidth)
-				.toMutableList()
+			// Prune to beamWidth by raw log-prob (length normalization is applied at finalization).
+			beams = next.sortedByDescending { it.logProb }.take(beamWidth)
+			if (beams.all { it.finished }) break
 		}
 
-		// Collect terminal beams (= valid words). For each, add prior log-frequency and context
-		// bonus, then rank.
-		data class Scored(val word: String, val score: Float)
-		val scored = mutableListOf<Scored>()
+		// Score finished beams. Length normalization + frequency + context bonus.
+		val scored = mutableListOf<Pair<String, Float>>()
 		for (b in beams) {
-			if (!b.node.terminal) continue
-			val full = lockedPrefix + b.suffix
-			val freqScore = gammaFrequency * b.node.logFrequency
-			val ctxScore = if (full in contextWords) contextBonus else 0f
-			scored.add(Scored(full, b.logProb + freqScore + ctxScore))
+			if (!b.trieNode.terminal) continue
+			val word = b.trieNode.word ?: continue
+			val len = (b.tokens.size - 1).coerceAtLeast(1)
+			val norm = b.logProb / pow(len.toFloat(), lengthAlpha)
+			val freq = freqWeight * b.trieNode.logFrequency
+			val ctx = if (word in contextWords) contextBonus else 0f
+			scored.add(word to (norm + freq + ctx))
 		}
 		return scored
-			.sortedByDescending { it.score }
-			.distinctBy { it.word }
+			.sortedByDescending { it.second }
+			.distinctBy { it.first }
 			.take(maxResults)
-			.map { it.word }
+			.map { it.first }
 	}
 
-	private fun addBeam(map: HashMap<BeamKey, BeamState>, candidate: BeamState) {
-		val key = BeamKey(candidate.node, candidate.lastChar, candidate.suffix)
-		val existing = map[key]
-		if (existing == null || candidate.logProb > existing.logProb) {
-			map[key] = candidate
+	private fun softmaxLog(flat: FloatArray, offset: Int): FloatArray {
+		// Numerically-stable log-softmax.
+		var maxLogit = Float.NEGATIVE_INFINITY
+		for (i in 0 until VOCAB_SIZE) {
+			val v = flat[offset + i]
+			if (v > maxLogit) maxLogit = v
 		}
+		var sumExp = 0f
+		for (i in 0 until VOCAB_SIZE) {
+			sumExp += exp(flat[offset + i] - maxLogit)
+		}
+		val logZ = maxLogit + ln(sumExp.coerceAtLeast(1e-30f))
+		val out = FloatArray(VOCAB_SIZE)
+		for (i in 0 until VOCAB_SIZE) {
+			out[i] = flat[offset + i] - logZ
+		}
+		return out
 	}
+
+	private fun pow(base: Float, exponent: Float): Float =
+		Math.pow(base.toDouble(), exponent.toDouble()).toFloat()
 
 	private data class BeamState(
-		val node: LexiconTrie.Node,
+		val tokens: IntArray,
+		val trieNode: LexiconTrie.Node,
 		val logProb: Float,
-		val lastChar: Char,
-		val suffix: String,
+		val finished: Boolean,
 	)
 
-	private data class BeamKey(val node: LexiconTrie.Node, val lastChar: Char, val suffix: String)
-
 	companion object {
-		private const val NO_CHAR = 0.toChar()
-		const val LOG_FLOOR = -1e9f
-		val LOG_FLOOR_TERM: Float = ln(1e-9f)
+		const val DECODER_SEQ_LEN = 20
+		const val VOCAB_SIZE = 30
 	}
 }

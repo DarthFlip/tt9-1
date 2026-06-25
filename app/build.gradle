@@ -114,6 +114,13 @@ android {
 		// F-droid hacks
 		dependenciesInfo.includeInApk = false
 		vectorDrawables.generatedDensities = []
+
+		// ONNX Runtime ships native libs for 4 ABIs (~73 MB combined). Target devices in
+		// scope are armeabi-v7a (Schok F1) and arm64-v8a (modern Android phones). Drop x86
+		// and x86_64 — only emulators need those — to keep the lite APK under ~30 MB.
+		ndk {
+			abiFilters 'armeabi-v7a', 'arm64-v8a'
+		}
 	}
 
 	buildTypes {
@@ -209,10 +216,10 @@ dependencies {
 	implementation 'com.google.android.material:material:1.13.0'
 	premiumImplementation 'com.android.billingclient:billing:8.3.0'
 
-	// Neural swipe decoder dependencies — bundled in all flavors. FUTO's encoder .pte ships
-	// in app/src/main/assets/models/ (see that README for license posture). Adds ~13 MB to
-	// the APK; even lite stays well under the previous 219 MB full-flavor baseline.
-	implementation 'org.pytorch:executorch-android:1.0.0'
-	implementation 'com.facebook.soloader:soloader:0.10.5'
-	implementation 'com.facebook.fbjni:fbjni:0.7.0'
+	// Neural swipe decoder runtime — ONNX Runtime ships native libs for armeabi-v7a (32-bit
+	// ARM), which is what the Schok F1 actually is. ExecuTorch only ships arm64-v8a so we
+	// can't use FUTO weights on this hardware. Pinned to 1.20.0 to match the CleverKeys
+	// upstream's ONNX export — newer ORT versions accept the same models but we want a
+	// stable baseline. License: MIT (GPL-compatible).
+	implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'
 }

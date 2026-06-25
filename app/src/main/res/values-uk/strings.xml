@@ -2,7 +2,7 @@
 <resources>
 	<string name="app_settings">Налаштування TT9</string>
 	<string name="pref_neural_credit_title">Свайп-набір</string>
-	<string name="pref_neural_credit_summary">На основі технології FUTO Swipe (ваги моделі за FUTO Model Weights License 1.0)</string>
+	<string name="pref_neural_credit_summary">Англійська використовує нейронний декодер CleverKeys (GPL-3.0); інші мови — статистичний резерв</string>
 	<string name="pref_font_size_large">Великий</string>
 	<string name="completed">Виконано</string>
 	<string name="loading">Завантаження…</string>

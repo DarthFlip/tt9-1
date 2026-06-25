@@ -2,7 +2,7 @@
 <resources>
 	<string name="app_settings">TT9 Einstellungen</string>
 	<string name="pref_neural_credit_title">Wischtastatur</string>
-	<string name="pref_neural_credit_summary">Mit FUTO Swipe-Technologie (Modellgewichte unter FUTO Model Weights License 1.0)</string>
+	<string name="pref_neural_credit_summary">Englisch nutzt den CleverKeys-Neural-Decoder (GPL-3.0); andere Sprachen den statistischen Fallback</string>
 	<string name="loading">Laden…</string>
 	<string name="error_unexpected">Unerwarteter Fehler aufgetreten.</string>
 

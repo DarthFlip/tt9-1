@@ -31,11 +31,20 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 	defStyleAttr: Int = 0,
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-	// Neural decoder in full flavor (FUTO weights + ExecuTorch); statistical fallback elsewhere.
-	// Both implement GlideTypingClassifier so the rest of this class is implementation-agnostic.
-	private val classifier: GlideTypingClassifier =
-		if (io.github.sspanak.tt9.BuildConfig.HAS_NEURAL_DECODER) NeuralGlideDecoder(context)
-		else StatisticalGlideTypingClassifier()
+	// Per-language dispatch — English uses the CleverKeys ONNX neural decoder; everything else
+	// (Hebrew, French, German, etc.) uses the statistical fallback. Both implement
+	// GlideTypingClassifier so the rest of this class is implementation-agnostic.
+	//
+	// Both decoders are lazy: a Hebrew-only user never spins up the ONNX runtime (~50 MB
+	// resident saved). bindLanguage() picks the active one; setLayout() pushes geometry to
+	// both so either is ready when toggled.
+	private val statisticalFallback: StatisticalGlideTypingClassifier by lazy {
+		StatisticalGlideTypingClassifier()
+	}
+	private val neuralEnglish: NeuralGlideDecoder? by lazy {
+		if (io.github.sspanak.tt9.BuildConfig.HAS_NEURAL_DECODER) NeuralGlideDecoder(context) else null
+	}
+	@Volatile private var classifier: GlideTypingClassifier = statisticalFallback
 	private var detector: GlideTypingGesture.Detector? = null
 	private var layoutCollected = false
 	private var boundLangId: Int = UNBOUND_LANG
@@ -151,6 +160,23 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 		// Lazy-load the learned per-key touch offsets for the new language so they're ready by
 		// the first tap.
 		KeyOffsetAdapter.ensureLoaded(context, langId)
+
+		// Pick which classifier serves this language. CleverKeys' neural decoder can only
+		// produce English a-z output; everything else routes to the statistical fallback.
+		val target: GlideTypingClassifier =
+			if (language.code.equals("en", ignoreCase = true)) {
+				neuralEnglish ?: statisticalFallback
+			} else {
+				statisticalFallback
+			}
+		if (target !== classifier) {
+			// Layout is static per orientation; push it to the newly-active classifier so it's
+			// ready by the time the word provider loads.
+			val keys = classifier.layoutKeys
+			if (keys.isNotEmpty()) target.setLayout(keys)
+			classifier = target
+		}
+
 		Tt9WordProvider.load(language) { provider ->
 			if (!provider.isLoaded) return@load
 			// Pruner build loops every word. Do it on the classifier worker, not main, otherwise
@@ -181,7 +207,10 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 			}
 		}
 		if (keys.isEmpty()) return
-		classifier.setLayout(keys)
+		// Push geometry to BOTH classifiers so a language switch finds the right layout
+		// ready without re-walking the view tree.
+		statisticalFallback.setLayout(keys)
+		neuralEnglish?.setLayout(keys)
 
 		val density = resources.displayMetrics.density
 		val keyWidthDp = keys.first().width / density

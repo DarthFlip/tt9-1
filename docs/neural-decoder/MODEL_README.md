@@ -1,77 +1,91 @@
 # Neural swipe decoder — model assets
 
-tt9's `full`, `lite`, and `premium` flavors include a neural swipe-typing
-decoder backed by [FUTO's published encoder weights](https://huggingface.co/futo-org/futo-swipe).
-The model is **not committed to this repository** — it's downloaded at build
-time by `app/download-neural-model.gradle`.
+tt9's neural swipe decoder uses [CleverKeys'](https://github.com/tribixbite/CleverKeys)
+trained ONNX models for English gestures. The model is **not committed to
+this repository** — it's downloaded at build time by
+`app/download-neural-model.gradle` from the upstream GitHub.
+
+Hebrew and other non-English languages continue to use tt9's
+`StatisticalGlideTypingClassifier`; the per-language dispatch lives in
+`SwipeableKeyboardContainer.bindLanguage`.
 
 ## What's downloaded
 
 | File | SHA256 | Size | Source |
 |---|---|---|---|
-| `model_fp32.pte` | `725242bab5d14345e96ff214e8de2bfbc1f962c232d320df9c24cb82ffd1fbaf` | 2.5 MB | [HuggingFace `honorable_sturgeon/model_fp32.pte`](https://huggingface.co/futo-org/futo-swipe/resolve/main/honorable_sturgeon/model_fp32.pte) |
-| `scoring.json` | — | ~1 KB | [HuggingFace `scoring.json`](https://huggingface.co/futo-org/futo-swipe/resolve/main/scoring.json) |
+| `swipe_encoder.onnx` | `964c721783df57a0a98aec67fb7db84732e0139d1b5ef9ff08c5b1fd2480f817` | 5.1 MB | [CleverKeys `swipe_encoder_android.onnx`](https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_encoder_android.onnx) |
+| `swipe_decoder.onnx` | `b438984986dbb0afeeac9551dcba8fc2ea87eea6bb011a0381dd93cc8cf92c0d` | 4.7 MB | [CleverKeys `swipe_decoder_android.onnx`](https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_decoder_android.onnx) |
 
 Both files land in `app/src/main/assets/models/` and are bundled into the
-final APK as Android assets.
+APK.
 
-## License posture
+## License
 
-These weights are under **FUTO Model Weights License 1.0**
-(see [FUTO_WEIGHTS_LICENSE.md](FUTO_WEIGHTS_LICENSE.md) for the full text).
-This license **is not GPL-3.0 compatible** because it adds:
+CleverKeys (code + ONNX weights) is **GPL-3.0** — same license as tt9.
+No additional attribution clause, no F-Droid blocker. Use this as a
+GPL-clean alternative to FUTO's Source First weights.
 
-- Mandatory attribution ("FUTO Swipe technology" visible to end users)
-- A prohibition on sublicensing
-- A patent termination clause
-
-tt9 itself remains GPL-3.0. The bundled FUTO weights coexist with that
-license uneasily. **The resulting combined APK is suitable for personal
-use only** — not for F-Droid, the Play Store, or formal commercial
-distribution. Anyone publishing the combined work needs to do their own
-legal review.
-
-## Required attribution
-
-The FUTO Model Weights License requires a visible notice that "FUTO
-Swipe" technology is in use. tt9 satisfies this by displaying the
-notice on:
-
-- The IME settings screen
-- The About screen
-
-If you remove the neural decoder from your fork (e.g. by setting
-`HAS_NEURAL_DECODER = false` in `app/build.gradle`) you may also remove
-the attribution notice.
+Upstream LICENSE: https://github.com/tribixbite/CleverKeys/blob/main/LICENSE
 
 ## Citation
 
-> Miller, D. & Kostarevas, A. (2026). FUTO Swipe: Layout-Agnostic Neural
-> Swipe Decoding. arXiv:2606.25247.
+CleverKeys is a community project by `tribixbite`. If you publish about
+the integration, credit the upstream repo. There's no formal paper.
 
-## Tensor contract
+## Tensor contract — encoder
 
-The encoder takes three input tensors and produces three output tensors:
+| Tensor | Direction | Shape | dtype | Notes |
+|---|---|---|---|---|
+| `trajectory_features` | input | `[1, 250, 6]` | f32 | (x, y, vx, vy, ax, ay) per timestep, normalized to [0,1] in QWERTY bounding box |
+| `nearest_keys` | input | `[1, 250]` | i32 | Index of the nearest layout key per timestep |
+| `actual_length` | input | `[1]` | i32 | Non-padded length of the trajectory |
+| `memory` | output | `[1, seq_len, 256]` | f32 | Encoded representation fed to decoder |
 
-| Tensor | Direction | Shape | Notes |
-|---|---|---|---|
-| `features` | input | `[1, 2, 64]` | Raw (x, y) gesture resampled to 64 points, normalized to layout bounds |
-| `layout_keys` | input | `[1, 64, 2]` | Per-key (x, y) centers, padded to 64 slots |
-| `layout_mask` | input | `[1, 64]` | Float mask — 1.0 for real key slots, 0.0 for padding |
-| `log_emissions` | output | `[1, 32, 65]` | Log-probabilities over 64 keys + 1 CTC blank |
-| `coefficients` | output | `[1, 32, 64]` | Spectral coefficients (for optional `magic_macaw` decoder) |
-| `lambda` | output | `[1, 32, 1]` | Intention gate (for optional `magic_macaw` decoder) |
+## Tensor contract — decoder (called iteratively, one step at a time)
 
-tt9 uses only `log_emissions`; the spectral / intention outputs are
-discarded because we don't ship the `magic_macaw` decoder.
+| Tensor | Direction | Shape | dtype | Notes |
+|---|---|---|---|---|
+| `memory` | input | `[1, seq_len, 256]` | f32 | Encoder output, reused across all beam steps |
+| `target_tokens` | input | `[num_beams, 20]` | i32 | Tokens emitted so far (PAD=0, UNK=1, SOS=2, EOS=3, a-z=4..29). Padded with 0. |
+| `actual_src_length` | input | `[1]` | i32 | Encoder's actual length |
+| `logits` | output | `[num_beams, 20, 30]` | f32 | Per-position vocab logits; we read the slice at the current step |
 
-## How tt9 uses the model
+CleverKeys' decoder is `broadcast`-mode: pass a single memory tensor for
+all beams; the model internally replicates across beam dim.
 
-1. Touch points enter `SwipeableKeyboardContainer.onGlideAddPoint()`.
-2. On gesture completion, `NeuralGlideDecoder.analyzeGesture()` resamples
-   the trajectory to 64 (x, y) points via `GestureResampler`.
-3. The encoder runs once via ExecuTorch (off-main thread).
-4. `BeamSearch` walks the lexicon trie constrained by the per-timestep
-   key log-probs, applies MindReader context bonus + locked-prefix
-   constraint + word frequency.
-5. Top-N candidates feed back into tt9's existing suggestion strip.
+## Decoding strategy
+
+1. Encode once per gesture → `memory`.
+2. Initialize beams as `[[SOS]]` with `logProb = 0`.
+3. For each step `t ∈ [0, max_steps)`:
+   - Build `target_tokens [num_beams, 20]` with current tokens followed
+     by PAD.
+   - Run decoder → `logits[beam, t, vocab]`.
+   - For each beam, expand by top-K valid next-tokens (constrained by
+     lexicon trie + locked prefix + EOS allowed only after >=2 chars).
+   - Prune to `beamWidth`.
+   - If all beams have emitted EOS, stop early.
+4. Strip control tokens, look up complete words in the trie, rank by
+   `logProb / length^α + freqBonus + contextBonus`, return top-N.
+
+## How tt9 uses CleverKeys
+
+- `NeuralGlideDecoder.kt` — owns both ONNX sessions, runs the encoder
+  + autoregressive decoder loop.
+- `CleverKeysFeatures.kt` — resamples gesture to 250 (x, y, vx, vy, ax, ay)
+  + nearest_keys lookup. Caps at 250 (the model's hardcoded sequence limit).
+- `BeamSearch.kt` — autoregressive beam search using the decoder ONNX session.
+- `LexiconTrie.kt` — token-keyed (4..29) prefix trie built from
+  `Tt9WordProvider`'s English word list.
+- `SwipeableKeyboardContainer.bindLanguage` — dispatch: English → neural,
+  everything else → statistical fallback.
+
+## Known limitations
+
+- **English-only at the model vocabulary level.** Cannot output Hebrew,
+  Cyrillic, or any non-Latin character. Hebrew uses the statistical
+  decoder instead.
+- **QWERTY-biased.** The encoder was trained on QWERTY geometry.
+  Non-QWERTY layouts (Dvorak, Colemak, AZERTY) will degrade.
+- **Sequence length capped at 250.** Long unrealistic gestures get
+  downsampled before they reach the model.

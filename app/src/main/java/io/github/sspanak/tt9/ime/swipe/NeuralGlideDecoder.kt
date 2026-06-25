@@ -1,48 +1,45 @@
 /*
  * Copyright (C) 2026 tt9 contributors. GPL-3.0.
  *
- * Neural swipe decoder backed by FUTO's published encoder weights (FUTO Model Weights License 1.0)
- * running on Meta's ExecuTorch Android runtime (BSD-3). Implements the same GlideTypingClassifier
- * interface as the statistical fallback, so SwipeableKeyboardContainer can swap one for the other
- * via build-flavor.
+ * Neural English-only swipe decoder backed by CleverKeys' published ONNX encoder +
+ * decoder weights (github.com/tribixbite/CleverKeys, GPL-3.0). ExecuTorch can't
+ * ship to the F1's 32-bit ARM hardware; ONNX Runtime does, which is why we pivoted
+ * here from the earlier FUTO/ExecuTorch attempt.
  *
  * Pipeline per gesture:
- *   raw points → GestureResampler → [1, 2, 64] features tensor
- *   layout keys → buildLayoutTensors → [1, 64, 2] + [1, 64] mask
- *   → ExecuTorch Module.forward → log_emissions [1, 32, 65]
- *   → BeamSearch (trie-constrained, MindReader context bonus) → top-N candidates
+ *   raw points → CleverKeysFeatures → [1, 250, 6] features + [1, 250] nearest_keys + [1] length
+ *   → encoder ORT session → memory [1, seq_len, 256]
+ *   → BeamSearch.decode(runDecoder) — autoregressive, up to 12 steps × 4 beams
+ *   → top-N candidate words via lexicon trie + length norm + freq + context bonus
  *
- * The model is layout-agnostic: layout coordinates flow in as a runtime input, so the same .pte
- * works for English QWERTY, Hebrew QWERTY, T9 grid — no per-language model file needed.
+ * Hebrew + other non-English languages NEVER reach this class — they go through
+ * StatisticalGlideTypingClassifier via per-language dispatch in
+ * SwipeableKeyboardContainer.bindLanguage.
  */
 package io.github.sspanak.tt9.ime.swipe
 
 import android.content.Context
 import android.util.Log
 import io.github.sspanak.tt9.util.Logger
-import java.io.File
-import java.io.FileOutputStream
+import java.nio.FloatBuffer
+import java.nio.IntBuffer
 
 class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	private val gesture = StatisticalGlideTypingClassifier.Gesture()
 	private var wordProvider: WordProvider = EmptyWordProvider
-	// All four are written from main thread (setLayout) and read from worker (runEncoder /
-	// BeamSearch). @Volatile so the worker sees a coherent snapshot — the encoder pipeline
-	// is atomic per-gesture; no intra-call mutation is expected.
 	@Volatile private var keys: List<SwipeKey> = emptyList()
-	@Volatile private var charToKeyIndex: Map<Char, Int> = emptyMap()
-	@Volatile private var cachedLayoutKeys: FloatArray = FloatArray(NUM_KEYS * 2)
-	@Volatile private var cachedLayoutMask: FloatArray = FloatArray(NUM_KEYS)
 	@Volatile private var wordPrefix: String = ""
 	private val trie = LexiconTrie()
 	private val beamSearch = BeamSearch()
 
-	// ExecuTorch module — loaded lazily on first inference. The model file ships in assets but
-	// must be on the filesystem for ExecuTorch's Module.load(path) — we copy on first init.
-	@Volatile private var module: Any? = null
-	@Volatile private var modulePath: String? = null
-	private val moduleLock = Any()
+	// ORT environment + session handles loaded lazily on first inference. Both ONNX models
+	// load directly from APK assets via byte arrays (ONNX Runtime's mmap path has a known
+	// SIGBUS issue on armv7).
+	@Volatile private var ortEnv: Any? = null
+	@Volatile private var encoderSession: Any? = null
+	@Volatile private var decoderSession: Any? = null
+	private val loadLock = Any()
 
 	override val ready: Boolean
 		get() = keys.isNotEmpty() && trie.wordCount > 0
@@ -55,21 +52,6 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	override fun setLayout(keys: List<SwipeKey>) {
 		this.keys = keys
-		// Pre-compute layout tensors so analyzeGesture doesn't redo it per call (layout only
-		// changes on bindLanguage / orientation).
-		val (k, m) = GestureResampler.buildLayoutTensors(keys, NUM_KEYS)
-		cachedLayoutKeys = k
-		cachedLayoutMask = m
-		// Reverse map char → layout slot index. BeamSearch uses this to translate per-timestep
-		// model logits into the trie's char alphabet. First-occurrence wins if the same char
-		// appears on multiple keys (shouldn't happen on a real layout but defend anyway).
-		val map = HashMap<Char, Int>(keys.size)
-		for (i in keys.indices) {
-			if (i >= NUM_KEYS) break
-			val ch = keys[i].code.toChar().lowercaseChar()
-			if (ch !in map) map[ch] = i
-		}
-		charToKeyIndex = map
 	}
 
 	override fun setWordProvider(provider: WordProvider) {
@@ -108,141 +90,85 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 		contextWords: Set<String>,
 	): List<String> {
 		if (!ready || snapshot.isEmpty) return emptyList()
-		val mod = ensureModuleLoaded() ?: return emptyList()
+		if (!ensureSessionsLoaded()) return emptyList()
 
 		val t0 = System.currentTimeMillis()
 
-		val features = GestureResampler.resampleToBuffer(snapshot, keys, TIMESTEPS_IN)
-		val logEmissions = runEncoder(mod, features) ?: return emptyList()
+		val features = CleverKeysFeatures.build(snapshot, keys)
+		if (features.actualLength[0] == 0) return emptyList()
 
+		val memory = runEncoder(features) ?: return emptyList()
 		val tEnc = System.currentTimeMillis() - t0
 
+		val seqLen = memory.size / ENCODER_HIDDEN
+		val srcLen = IntArray(1) { features.actualLength[0] }
 		val results = beamSearch.decode(
-			logEmissions = logEmissions,
-			numKeys = NUM_KEYS,
-			charToKeyIndex = charToKeyIndex,
+			runDecoder = { tokens, numBeams -> runDecoder(memory, seqLen, srcLen, tokens, numBeams) },
 			trie = trie,
 			lockedPrefix = wordPrefix,
 			contextWords = contextWords,
 			maxResults = maxSuggestionCount,
 		)
-		Logger.d(TAG, "encode=${tEnc}ms total=${System.currentTimeMillis() - t0}ms results=${results.size}")
+		Logger.d(TAG, "enc=${tEnc}ms total=${System.currentTimeMillis() - t0}ms results=${results.size}")
 		return results
 	}
 
-	/**
-	 * ExecuTorch's Module API requires a filesystem path, but Android assets are inside the APK.
-	 * Copy the asset to internal storage on first call; subsequent calls reuse the cached file.
-	 *
-	 * Returns the loaded Module (as Any to avoid hard-coding the ExecuTorch class name when the
-	 * dependency may be flavor-scoped — runtime reflection-style guard).
-	 */
-	private fun ensureModuleLoaded(): Any? {
-		val cached = module
-		if (cached != null) return cached
-		synchronized(moduleLock) {
-			val again = module
-			if (again != null) return again
+	// ───────────────────────────── ORT session lifecycle ──────────────────────────────
+
+	private fun ensureSessionsLoaded(): Boolean {
+		if (encoderSession != null && decoderSession != null) return true
+		synchronized(loadLock) {
+			if (encoderSession != null && decoderSession != null) return true
 			return try {
-				val path = extractAssetIfNeeded()
-				val moduleClass = Class.forName("org.pytorch.executorch.Module")
-				val loadMethod = moduleClass.getMethod("load", String::class.java)
-				val loaded = loadMethod.invoke(null, path)
-				modulePath = path
-				module = loaded
-				Logger.d(TAG, "loaded ExecuTorch module from $path")
-				loaded
+				val ortEnvClass = Class.forName("ai.onnxruntime.OrtEnvironment")
+				val env = ortEnvClass.getMethod("getEnvironment").invoke(null)
+				ortEnv = env
+
+				val encoderBytes = readAsset("models/$ENCODER_FILENAME")
+				val decoderBytes = readAsset("models/$DECODER_FILENAME")
+
+				val createSession = ortEnvClass.getMethod("createSession", ByteArray::class.java)
+				encoderSession = createSession.invoke(env, encoderBytes)
+				decoderSession = createSession.invoke(env, decoderBytes)
+				Logger.d(TAG, "ONNX sessions loaded (encoder ${encoderBytes.size}B, decoder ${decoderBytes.size}B)")
+				true
 			} catch (e: Throwable) {
-				Log.e(TAG, "failed to load model — neural decoder will return empty results", e)
-				// Cached .pte may be truncated from a previous interrupted extraction; wipe so
-				// the next attempt re-fetches a clean copy.
-				try { wipeCachedAsset() } catch (_: Throwable) {}
-				null
+				Log.e(TAG, "failed to load ONNX sessions — neural decoder will return empty results", e)
+				false
 			}
 		}
 	}
 
-	/**
-	 * Extract the .pte asset to internal storage atomically. Naive `copyTo(out)` is non-atomic —
-	 * if the IME process is killed mid-copy, `out` ends up truncated. Future cold-loads see
-	 * `length() > 0` and skip re-extraction → `Module.load` throws → silent empty results.
-	 * Fix: write to a sibling .tmp file, fsync, then rename. If `Module.load` fails downstream
-	 * (`ensureModuleLoaded`'s catch), the cached file is wiped so the next attempt re-extracts.
-	 */
-	private fun extractAssetIfNeeded(): String {
-		val out = File(context.filesDir, ASSET_FILENAME)
-		if (out.exists() && out.length() > 0) return out.absolutePath
-		val tmp = File(context.filesDir, "$ASSET_FILENAME.tmp")
-		if (tmp.exists()) tmp.delete()
-		context.assets.open("models/$ASSET_FILENAME").use { input ->
-			FileOutputStream(tmp).use { output ->
-				input.copyTo(output)
-				output.fd.sync()
-			}
-		}
-		if (!tmp.renameTo(out)) {
-			tmp.delete()
-			throw RuntimeException("rename of $tmp → $out failed")
-		}
-		Logger.d(TAG, "extracted asset to ${out.absolutePath} (${out.length()} bytes)")
-		return out.absolutePath
-	}
+	private fun readAsset(path: String): ByteArray =
+		context.assets.open(path).use { it.readBytes() }
 
-	private fun wipeCachedAsset() {
-		val out = File(context.filesDir, ASSET_FILENAME)
-		if (out.exists()) out.delete()
-	}
+	// ───────────────────────────── Inference helpers ──────────────────────────────────
 
-	/**
-	 * Run the encoder model. Inputs: features [1,2,64], layout_keys [1,64,2], layout_mask [1,64].
-	 * Returns log_emissions as [T × (numKeys+1)] = [32 × 65].
-	 *
-	 * Uses reflection to dodge a hard compile-time dependency on ExecuTorch types — keeps this
-	 * file compiling cleanly in flavors that don't ship the runtime.
-	 */
-	private fun runEncoder(mod: Any, features: FloatArray): Array<FloatArray>? {
+	private fun runEncoder(input: CleverKeysFeatures.Inputs): FloatArray? {
 		return try {
-			val tensorClass = Class.forName("org.pytorch.executorch.Tensor")
-			val evalueClass = Class.forName("org.pytorch.executorch.EValue")
-			val fromBlobFloat = tensorClass.getMethod(
-				"fromBlob",
-				FloatArray::class.java,
-				LongArray::class.java,
-			)
-			val evalueFrom = evalueClass.getMethod("from", tensorClass)
+			val env = ortEnv ?: return null
+			val session = encoderSession ?: return null
 
-			val featuresTensor = fromBlobFloat.invoke(null, features, longArrayOf(1, 2, TIMESTEPS_IN.toLong()))
-			val layoutTensor = fromBlobFloat.invoke(null, cachedLayoutKeys, longArrayOf(1, NUM_KEYS.toLong(), 2))
-			val maskTensor = fromBlobFloat.invoke(null, cachedLayoutMask, longArrayOf(1, NUM_KEYS.toLong()))
+			val featuresTensor = createFloatTensor(env, input.features, longArrayOf(1, CleverKeysFeatures.MAX_SEQ_LEN.toLong(), CleverKeysFeatures.FEATURE_DIM.toLong()))
+			val nearestTensor = createIntTensor(env, input.nearestKeys, longArrayOf(1, CleverKeysFeatures.MAX_SEQ_LEN.toLong()))
+			val lengthTensor = createIntTensor(env, input.actualLength, longArrayOf(1))
 
-			// Build an EValue[] (NOT Object[]) so reflection's getMethod() matches forward's
-			// declared signature `EValue[] forward(EValue[] inputs)`.
-			val evalueArrayClass = java.lang.reflect.Array.newInstance(evalueClass, 0).javaClass
-			val inputs = java.lang.reflect.Array.newInstance(evalueClass, 3)
-			java.lang.reflect.Array.set(inputs, 0, evalueFrom.invoke(null, featuresTensor))
-			java.lang.reflect.Array.set(inputs, 1, evalueFrom.invoke(null, layoutTensor))
-			java.lang.reflect.Array.set(inputs, 2, evalueFrom.invoke(null, maskTensor))
-
-			val moduleClass = mod.javaClass
-			val forwardMethod = moduleClass.getMethod("forward", evalueArrayClass)
-			val outputs = forwardMethod.invoke(mod, inputs) as Array<*>
-
-			// Output 0 is log_emissions [1, 32, 65]
-			val outEvalue = outputs[0] ?: return null
-			val toTensorMethod = evalueClass.getMethod("toTensor")
-			val outTensor = toTensorMethod.invoke(outEvalue)
-			val getDataAsFloatArray = tensorClass.getMethod("getDataAsFloatArray")
-			val flat = getDataAsFloatArray.invoke(outTensor) as FloatArray
-
-			val expectedSize = TIMESTEPS_OUT * (NUM_KEYS + 1)
-			if (flat.size != expectedSize) {
-				Log.e(TAG, "model output size mismatch: got ${flat.size}, expected $expectedSize")
-				return null
-			}
-
-			// Reshape [1, 32, 65] row-major flat → [32][65]
-			Array(TIMESTEPS_OUT) { t ->
-				FloatArray(NUM_KEYS + 1) { k -> flat[t * (NUM_KEYS + 1) + k] }
+			try {
+				val inputs = mapOf(
+					"trajectory_features" to featuresTensor,
+					"nearest_keys" to nearestTensor,
+					"actual_length" to lengthTensor,
+				)
+				val result = runSession(session, inputs) ?: return null
+				try {
+					extractFloatTensor(result, "memory")
+				} finally {
+					closeAutoCloseable(result)
+				}
+			} finally {
+				closeAutoCloseable(featuresTensor)
+				closeAutoCloseable(nearestTensor)
+				closeAutoCloseable(lengthTensor)
 			}
 		} catch (e: Throwable) {
 			Log.e(TAG, "encoder inference failed", e)
@@ -250,11 +176,111 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 		}
 	}
 
+	private fun runDecoder(
+		memory: FloatArray,
+		seqLen: Int,
+		actualSrcLength: IntArray,
+		targetTokens: IntArray,
+		numBeams: Int,
+	): FloatArray? {
+		return try {
+			val env = ortEnv ?: return null
+			val session = decoderSession ?: return null
+
+			val memoryTensor = createFloatTensor(env, memory, longArrayOf(1, seqLen.toLong(), ENCODER_HIDDEN.toLong()))
+			val tokensTensor = createIntTensor(env, targetTokens, longArrayOf(numBeams.toLong(), BeamSearch.DECODER_SEQ_LEN.toLong()))
+			val srcLenTensor = createIntTensor(env, actualSrcLength, longArrayOf(1))
+
+			try {
+				val inputs = mapOf(
+					"memory" to memoryTensor,
+					"target_tokens" to tokensTensor,
+					"actual_src_length" to srcLenTensor,
+				)
+				val result = runSession(session, inputs) ?: return null
+				try {
+					extractFloatTensor(result, "logits")
+				} finally {
+					closeAutoCloseable(result)
+				}
+			} finally {
+				closeAutoCloseable(memoryTensor)
+				closeAutoCloseable(tokensTensor)
+				closeAutoCloseable(srcLenTensor)
+			}
+		} catch (e: Throwable) {
+			Log.e(TAG, "decoder inference failed", e)
+			null
+		}
+	}
+
+	// ───────────────────────────── ONNX Runtime reflection ────────────────────────────
+
+	private fun createFloatTensor(env: Any, data: FloatArray, shape: LongArray): Any {
+		val onnxTensorClass = Class.forName("ai.onnxruntime.OnnxTensor")
+		val ortEnvClass = Class.forName("ai.onnxruntime.OrtEnvironment")
+		val method = onnxTensorClass.getMethod(
+			"createTensor",
+			ortEnvClass,
+			FloatBuffer::class.java,
+			LongArray::class.java,
+		)
+		return method.invoke(null, env, FloatBuffer.wrap(data), shape)
+	}
+
+	private fun createIntTensor(env: Any, data: IntArray, shape: LongArray): Any {
+		val onnxTensorClass = Class.forName("ai.onnxruntime.OnnxTensor")
+		val ortEnvClass = Class.forName("ai.onnxruntime.OrtEnvironment")
+		val method = onnxTensorClass.getMethod(
+			"createTensor",
+			ortEnvClass,
+			IntBuffer::class.java,
+			LongArray::class.java,
+		)
+		return method.invoke(null, env, IntBuffer.wrap(data), shape)
+	}
+
+	private fun runSession(session: Any, inputs: Map<String, Any>): Any? {
+		val sessionClass = Class.forName("ai.onnxruntime.OrtSession")
+		val runMethod = sessionClass.getMethod("run", Map::class.java)
+		return runMethod.invoke(session, inputs)
+	}
+
+	@Suppress("UNCHECKED_CAST")
+	private fun extractFloatTensor(result: Any, name: String): FloatArray? {
+		val resultClass = Class.forName("ai.onnxruntime.OrtSession\$Result")
+		val getByName = resultClass.getMethod("get", String::class.java)
+		val optional = getByName.invoke(result, name)
+		val valueObj = when (optional) {
+			null -> null
+			is java.util.Optional<*> -> optional.orElse(null)
+			else -> optional
+		} ?: return null
+
+		val onnxTensorClass = Class.forName("ai.onnxruntime.OnnxTensor")
+		if (!onnxTensorClass.isInstance(valueObj)) return null
+
+		// getFloatBuffer() returns a read-only FloatBuffer view of the underlying tensor.
+		val getFloatBuffer = onnxTensorClass.getMethod("getFloatBuffer")
+		val buf = getFloatBuffer.invoke(valueObj) as? FloatBuffer ?: return null
+		val out = FloatArray(buf.remaining())
+		buf.get(out)
+		return out
+	}
+
+	private fun closeAutoCloseable(obj: Any?) {
+		if (obj == null) return
+		try {
+			(obj as? AutoCloseable)?.close()
+		} catch (_: Throwable) {
+			// best-effort cleanup
+		}
+	}
+
 	companion object {
 		private const val TAG = "tt9/NeuralGlide"
-		private const val ASSET_FILENAME = "model_fp32.pte"
-		const val TIMESTEPS_IN = 64
-		const val TIMESTEPS_OUT = 32
-		const val NUM_KEYS = 64
+		private const val ENCODER_FILENAME = "swipe_encoder.onnx"
+		private const val DECODER_FILENAME = "swipe_decoder.onnx"
+		const val ENCODER_HIDDEN = 256
 	}
 }

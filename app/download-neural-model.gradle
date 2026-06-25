@@ -1,42 +1,28 @@
-// Downloads FUTO's swipe-typing model weights to app/src/main/assets/models/ so the
-// NeuralGlideDecoder can load them at runtime. The weights are under FUTO Model Weights
-// License 1.0 (see docs/neural-decoder/FUTO_WEIGHTS_LICENSE.md) — not GPL-3 compatible,
-// so we don't commit them to this GPL-3 repo. They're fetched fresh on first build instead.
+// Downloads CleverKeys' swipe-typing encoder + decoder ONNX models to
+// app/src/main/assets/models/ so NeuralGlideDecoder can load them at runtime.
+// Both files are GPL-3.0 (same license as tt9 — no separate attribution required),
+// so they could be committed; kept out of git to keep the repo small and let the
+// build pull the canonical upstream.
 //
-// Wired into preBuild via the apply block below, so any assemble task triggers it once
-// (idempotent — skips if file exists with the expected SHA).
+// Wired into mergeAssets via the apply block below — idempotent: skips when the
+// file already exists with the right SHA256.
 
 def neuralModelDir = file("${projectDir}/src/main/assets/models")
-def neuralModelFile = new File(neuralModelDir, "model_fp32.pte")
-def neuralScoringFile = new File(neuralModelDir, "scoring.json")
-def neuralModelSha256 = "725242bab5d14345e96ff214e8de2bfbc1f962c232d320df9c24cb82ffd1fbaf"
-def neuralModelUrl = "https://huggingface.co/futo-org/futo-swipe/resolve/main/honorable_sturgeon/model_fp32.pte"
-def neuralScoringUrl = "https://huggingface.co/futo-org/futo-swipe/resolve/main/scoring.json"
+def encoderFile = new File(neuralModelDir, "swipe_encoder.onnx")
+def decoderFile = new File(neuralModelDir, "swipe_decoder.onnx")
+def encoderSha256 = "964c721783df57a0a98aec67fb7db84732e0139d1b5ef9ff08c5b1fd2480f817"
+def decoderSha256 = "b438984986dbb0afeeac9551dcba8fc2ea87eea6bb011a0381dd93cc8cf92c0d"
+def encoderUrl = "https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_encoder_android.onnx"
+def decoderUrl = "https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_decoder_android.onnx"
 
 tasks.register('downloadNeuralModel') {
-	outputs.file neuralModelFile
-	outputs.file neuralScoringFile
+	outputs.file encoderFile
+	outputs.file decoderFile
 
 	doLast {
 		neuralModelDir.mkdirs()
-
-		def needsModel = !neuralModelFile.exists() || sha256Of(neuralModelFile) != neuralModelSha256
-		if (needsModel) {
-			logger.lifecycle("downloading FUTO swipe model weights (${neuralModelUrl})")
-			downloadTo(neuralModelUrl, neuralModelFile)
-			def actual = sha256Of(neuralModelFile)
-			if (actual != neuralModelSha256) {
-				throw new GradleException(
-					"SHA256 mismatch for ${neuralModelFile.name}: expected ${neuralModelSha256}, got ${actual}"
-				)
-			}
-			logger.lifecycle("FUTO model weights are under FUTO Model Weights License 1.0 — see docs/neural-decoder/FUTO_WEIGHTS_LICENSE.md")
-		}
-
-		if (!neuralScoringFile.exists()) {
-			logger.lifecycle("downloading FUTO scoring config (${neuralScoringUrl})")
-			downloadTo(neuralScoringUrl, neuralScoringFile)
-		}
+		fetchIfMissing(encoderFile, encoderUrl, encoderSha256, "swipe encoder")
+		fetchIfMissing(decoderFile, decoderUrl, decoderSha256, "swipe decoder")
 	}
 }
 
@@ -46,6 +32,18 @@ androidComponents {
 		tasks.matching { it.name == "merge${variantName}Assets" }.configureEach {
 			dependsOn(downloadNeuralModel)
 		}
+	}
+}
+
+def fetchIfMissing(File f, String url, String expectedSha, String label) {
+	if (f.exists() && sha256Of(f) == expectedSha) return
+	logger.lifecycle("downloading CleverKeys $label (${url})")
+	downloadTo(url, f)
+	def actual = sha256Of(f)
+	if (actual != expectedSha) {
+		throw new GradleException(
+			"SHA256 mismatch for ${f.name}: expected ${expectedSha}, got ${actual}"
+		)
 	}
 }
 

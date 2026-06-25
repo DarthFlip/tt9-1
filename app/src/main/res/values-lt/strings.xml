@@ -2,7 +2,7 @@
 <resources>
 	<string name="app_settings">„TT9“ nustatymai</string>
 	<string name="pref_neural_credit_title">Braukimo įvedimas</string>
-	<string name="pref_neural_credit_summary">Naudoja FUTO Swipe technologiją (modelio svoriai pagal FUTO Model Weights License 1.0)</string>
+	<string name="pref_neural_credit_summary">Anglų kalba naudoja CleverKeys neuroninį dekoderį (GPL-3.0); kitos kalbos — statistinį atsarginį</string>
 	<string name="pref_font_size_large">Didelis</string>
 	<string name="completed">Baigta</string>
 	<string name="loading">Įkeliama…</string>
