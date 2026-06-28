@@ -1,3 +1,5 @@
+/* Ported from github.com/tribixbite/CleverKeys (GPL-3.0). */
+
 package io.github.sspanak.tt9.ime.swipe.cleverkeys
 
 import android.graphics.PointF

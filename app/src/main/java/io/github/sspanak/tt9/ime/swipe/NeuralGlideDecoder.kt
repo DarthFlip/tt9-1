@@ -62,16 +62,21 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	override fun setLayout(keys: List<SwipeKey>) {
 		this.keys = keys
-		// Wire CleverKeys' processor with the layout — it uses these for both nearest-key
-		// detection and the qwerty-area normalization frame the model expects.
 		val (minX, maxX, minY, maxY) = layoutBounds(keys)
 		val width = (maxX - minX).coerceAtLeast(1f)
 		val height = (maxY - minY).coerceAtLeast(1f)
+		// Key positions in NORMALIZED [0,1] space — the processor's findNearestKey path uses
+		// these against already-normalized trajectory points. Canonical KeyboardGrid was wrong
+		// because tt9's actual QWERTY layout (key offsets, row heights) doesn't precisely
+		// match its hardcoded standard. Passing the real layout fixes nearest-key detection.
 		val keyPositions = HashMap<Char, PointF>(keys.size)
 		for (k in keys) {
 			val ch = k.code.toChar().lowercaseChar()
 			if (ch in 'a'..'z' && ch !in keyPositions) {
-				keyPositions[ch] = PointF(k.centerX, k.centerY)
+				keyPositions[ch] = PointF(
+					(k.centerX - minX) / width,
+					(k.centerY - minY) / height,
+				)
 			}
 		}
 		trajectoryProcessor.setKeyboardLayout(keyPositions, width, height)

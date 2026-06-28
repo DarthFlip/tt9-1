@@ -1,3 +1,5 @@
+/* Ported from github.com/tribixbite/CleverKeys (GPL-3.0). */
+
 package io.github.sspanak.tt9.ime.swipe.cleverkeys
 
 import android.graphics.PointF
@@ -443,9 +445,18 @@ class SwipeTrajectoryProcessor {
                     "first=(${first.x},${first.y}) last=(${last.x},${last.y})")
         }
 
+        val positions = keyPositions
         normalizedCoordinates.forEach { point ->
-            // Use Kotlin KeyboardGrid for nearest key detection
-            val tokenIndex = KeyboardGrid.getNearestKeyToken(point.x, point.y)
+            // tt9 fix: when the caller has provided a real layout, use it instead of the
+            // canonical-QWERTY KeyboardGrid. tt9's on-screen QWERTY isn't guaranteed to match
+            // CleverKeys' hardcoded row offsets — using the real key positions makes nearest-key
+            // detection align with what the user is actually touching.
+            val tokenIndex = if (positions != null) {
+                val ch = findNearestKey(point)
+                charToTokenIndex(ch)
+            } else {
+                KeyboardGrid.getNearestKeyToken(point.x, point.y)
+            }
             nearestKeys.add(tokenIndex)
 
             // Convert back to char for debug display
