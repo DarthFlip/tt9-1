@@ -19,8 +19,13 @@
 package io.github.sspanak.tt9.ime.swipe
 
 import android.content.Context
+import android.graphics.PointF
 import android.util.Log
+import io.github.sspanak.tt9.ime.swipe.cleverkeys.SwipeInput
+import io.github.sspanak.tt9.ime.swipe.cleverkeys.SwipeTrajectoryProcessor
 import io.github.sspanak.tt9.util.Logger
+import java.io.File
+import java.io.FileOutputStream
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
 
@@ -32,6 +37,11 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 	@Volatile private var wordPrefix: String = ""
 	private val trie = LexiconTrie()
 	private val beamSearch = BeamSearch()
+	// Ported CleverKeys preprocessing. Their pipeline: raw coords + real timestamps
+	// → optional resample if > 250 → per-point velocity/acceleration/normalization → fixed
+	// [1, 250, 6] tensor + nearest-keys + actual_length. Replaces our hand-rolled
+	// CleverKeysFeatures which got the velocity scaling wrong by ~250×.
+	private val trajectoryProcessor = SwipeTrajectoryProcessor()
 
 	// ORT environment + session handles loaded lazily on first inference. Both ONNX models
 	// load directly from APK assets via byte arrays (ONNX Runtime's mmap path has a known
@@ -52,7 +62,46 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	override fun setLayout(keys: List<SwipeKey>) {
 		this.keys = keys
+		// Wire CleverKeys' processor with the layout — it uses these for both nearest-key
+		// detection and the qwerty-area normalization frame the model expects.
+		val (minX, maxX, minY, maxY) = layoutBounds(keys)
+		val width = (maxX - minX).coerceAtLeast(1f)
+		val height = (maxY - minY).coerceAtLeast(1f)
+		val keyPositions = HashMap<Char, PointF>(keys.size)
+		for (k in keys) {
+			val ch = k.code.toChar().lowercaseChar()
+			if (ch in 'a'..'z' && ch !in keyPositions) {
+				keyPositions[ch] = PointF(k.centerX, k.centerY)
+			}
+		}
+		trajectoryProcessor.setKeyboardLayout(keyPositions, width, height)
+		trajectoryProcessor.setMargins(minX, 0f)
+		trajectoryProcessor.setQwertyAreaBounds(minY, height)
+		// Finger-occlusion correction: scale CleverKeys' ~74px to the F1's key height.
+		val avgKeyHeight = if (keys.isEmpty()) 0f else keys.sumOf { it.height.toDouble() }.toFloat() / keys.size
+		trajectoryProcessor.setTouchYOffset(avgKeyHeight * 0.30f)
 	}
+
+	private fun layoutBounds(keys: List<SwipeKey>): FloatArray {
+		var minX = Float.MAX_VALUE
+		var maxX = -Float.MAX_VALUE
+		var minY = Float.MAX_VALUE
+		var maxY = -Float.MAX_VALUE
+		for (k in keys) {
+			val hw = k.width / 2f
+			val hh = k.height / 2f
+			if (k.centerX - hw < minX) minX = k.centerX - hw
+			if (k.centerX + hw > maxX) maxX = k.centerX + hw
+			if (k.centerY - hh < minY) minY = k.centerY - hh
+			if (k.centerY + hh > maxY) maxY = k.centerY + hh
+		}
+		return floatArrayOf(minX, maxX, minY, maxY)
+	}
+
+	private operator fun FloatArray.component1() = this[0]
+	private operator fun FloatArray.component2() = this[1]
+	private operator fun FloatArray.component3() = this[2]
+	private operator fun FloatArray.component4() = this[3]
 
 	override fun setWordProvider(provider: WordProvider) {
 		wordProvider = provider
@@ -94,14 +143,45 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 		val t0 = System.currentTimeMillis()
 
-		val features = CleverKeysFeatures.build(snapshot, keys)
-		if (features.actualLength[0] == 0) return emptyList()
+		// Build SwipeInput from the gesture snapshot. Synthesize timestamps as
+		// `index × ~17ms` — touch events on Android land at ~60Hz so this approximates
+		// real time well enough for the velocity scaling. (Real MotionEvent.getEventTime()
+		// would be better; deferred to Phase 3.5.)
+		val coordinates = ArrayList<PointF>(snapshot.pointCount)
+		val timestamps = ArrayList<Long>(snapshot.pointCount)
+		val startMs = System.currentTimeMillis() - snapshot.pointCount * 17L
+		for (i in 0 until snapshot.pointCount) {
+			coordinates.add(PointF(snapshot.getX(i), snapshot.getY(i)))
+			timestamps.add(startMs + i * 17L)
+		}
+		val swipeInput = SwipeInput(coordinates, timestamps)
+		val features = trajectoryProcessor.extractFeatures(swipeInput, MAX_SEQ_LEN)
+		if (features.actualLength == 0) return emptyList()
 
-		val memory = runEncoder(features) ?: return emptyList()
+		// Flatten to model tensors: features [1, 250, 6] timestep-major, nearest_keys [1, 250],
+		// actual_length [1]. SwipeTrajectoryProcessor handles padding/truncation already.
+		val featuresFlat = FloatArray(MAX_SEQ_LEN * FEATURE_DIM)
+		val nearestFlat = IntArray(MAX_SEQ_LEN)
+		val n = features.actualLength.coerceAtMost(MAX_SEQ_LEN)
+		for (i in 0 until n) {
+			val p = features.normalizedPoints[i]
+			val base = i * FEATURE_DIM
+			featuresFlat[base] = p.x
+			featuresFlat[base + 1] = p.y
+			featuresFlat[base + 2] = p.vx
+			featuresFlat[base + 3] = p.vy
+			featuresFlat[base + 4] = p.ax
+			featuresFlat[base + 5] = p.ay
+			nearestFlat[i] = features.nearestKeys[i]
+		}
+		val actualLength = IntArray(1) { n }
+		val encoderInputs = CleverKeysFeatures.Inputs(featuresFlat, nearestFlat, actualLength)
+
+		val memory = runEncoder(encoderInputs) ?: return emptyList()
 		val tEnc = System.currentTimeMillis() - t0
 
 		val seqLen = memory.size / ENCODER_HIDDEN
-		val srcLen = IntArray(1) { features.actualLength[0] }
+		val srcLen = IntArray(1) { n }
 		val results = beamSearch.decode(
 			runDecoder = { tokens, numBeams -> runDecoder(memory, seqLen, srcLen, tokens, numBeams) },
 			trie = trie,
@@ -124,23 +204,56 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 				val env = ortEnvClass.getMethod("getEnvironment").invoke(null)
 				ortEnv = env
 
-				val encoderBytes = readAsset("models/$ENCODER_FILENAME")
-				val decoderBytes = readAsset("models/$DECODER_FILENAME")
+				// Use file-path loading (NOT byte-array). The byte-array createSession overload
+				// triggers a SIGBUS / BUS_ADRALN crash inside libonnxruntime.so on armv7 — the
+				// model bytes get parsed with unaligned-load instructions that armv7 doesn't
+				// tolerate. The file-path overload routes through a different C++ code path
+				// that uses aligned mmap on the file descriptor instead.
+				val encoderPath = extractAssetAtomic(ENCODER_FILENAME)
+				val decoderPath = extractAssetAtomic(DECODER_FILENAME)
 
-				val createSession = ortEnvClass.getMethod("createSession", ByteArray::class.java)
-				encoderSession = createSession.invoke(env, encoderBytes)
-				decoderSession = createSession.invoke(env, decoderBytes)
-				Logger.d(TAG, "ONNX sessions loaded (encoder ${encoderBytes.size}B, decoder ${decoderBytes.size}B)")
+				val createSession = ortEnvClass.getMethod("createSession", String::class.java)
+				encoderSession = createSession.invoke(env, encoderPath)
+				decoderSession = createSession.invoke(env, decoderPath)
+				Logger.d(TAG, "ONNX sessions loaded from $encoderPath, $decoderPath")
 				true
 			} catch (e: Throwable) {
 				Log.e(TAG, "failed to load ONNX sessions — neural decoder will return empty results", e)
+				// Cached files may be truncated from a previous interrupted extraction; wipe so
+				// the next attempt re-extracts a clean copy.
+				try { wipeCachedAsset(ENCODER_FILENAME); wipeCachedAsset(DECODER_FILENAME) } catch (_: Throwable) {}
 				false
 			}
 		}
 	}
 
-	private fun readAsset(path: String): ByteArray =
-		context.assets.open(path).use { it.readBytes() }
+	/**
+	 * Extract an asset to internal storage atomically — write to .tmp + fsync + rename, so a
+	 * mid-copy process kill doesn't leave a truncated file the next launch silently accepts.
+	 */
+	private fun extractAssetAtomic(filename: String): String {
+		val out = File(context.filesDir, filename)
+		if (out.exists() && out.length() > 0) return out.absolutePath
+		val tmp = File(context.filesDir, "$filename.tmp")
+		if (tmp.exists()) tmp.delete()
+		context.assets.open("models/$filename").use { input ->
+			FileOutputStream(tmp).use { output ->
+				input.copyTo(output)
+				output.fd.sync()
+			}
+		}
+		if (!tmp.renameTo(out)) {
+			tmp.delete()
+			throw RuntimeException("rename of $tmp → $out failed")
+		}
+		Logger.d(TAG, "extracted $filename to ${out.absolutePath} (${out.length()} bytes)")
+		return out.absolutePath
+	}
+
+	private fun wipeCachedAsset(filename: String) {
+		val out = File(context.filesDir, filename)
+		if (out.exists()) out.delete()
+	}
 
 	// ───────────────────────────── Inference helpers ──────────────────────────────────
 
@@ -161,7 +274,7 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 				)
 				val result = runSession(session, inputs) ?: return null
 				try {
-					extractFloatTensor(result, "memory")
+					extractFloatTensor(result, "encoder_output")
 				} finally {
 					closeAutoCloseable(result)
 				}
@@ -199,7 +312,7 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 				)
 				val result = runSession(session, inputs) ?: return null
 				try {
-					extractFloatTensor(result, "logits")
+					extractFloatTensor(result, "log_probs")
 				} finally {
 					closeAutoCloseable(result)
 				}
@@ -279,8 +392,14 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 	companion object {
 		private const val TAG = "tt9/NeuralGlide"
-		private const val ENCODER_FILENAME = "swipe_encoder.onnx"
-		private const val DECODER_FILENAME = "swipe_decoder.onnx"
+		// ORT format (not raw .onnx) — converted via convert_onnx_models_to_ort with
+		// --target_platform arm. The ORT flatbuffer guarantees 4-byte aligned buffers, which
+		// fixes the SIGBUS/BUS_ADRALN crash ORT 1.20-1.26 hits when parsing raw .onnx on the
+		// F1's armv7 hardware. Same API path: createSession(String) handles both formats.
+		private const val ENCODER_FILENAME = "swipe_encoder.ort"
+		private const val DECODER_FILENAME = "swipe_decoder.ort"
 		const val ENCODER_HIDDEN = 256
+		const val MAX_SEQ_LEN = 250
+		const val FEATURE_DIM = 6
 	}
 }
