@@ -121,10 +121,10 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 			val dx = gesture.getLastX() - position.x
 			val dy = gesture.getLastY() - position.y
 			if (dx * dx + dy * dy > distanceThresholdSquared) {
-				gesture.addPoint(position.x, position.y)
+				gesture.addPoint(position.x, position.y, position.t)
 			}
 		} else {
-			gesture.addPoint(position.x, position.y)
+			gesture.addPoint(position.x, position.y, position.t)
 		}
 	}
 
@@ -584,6 +584,9 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 	class Gesture(
 		private val xs: FloatArray = FloatArray(MAX_SIZE),
 		private val ys: FloatArray = FloatArray(MAX_SIZE),
+		// Parallel wall-clock timestamps (MotionEvent.eventTime ms). Required by the neural
+		// decoder for real velocity / acceleration features. Statistical scoring ignores it.
+		private val ts: LongArray = LongArray(MAX_SIZE),
 		private var size: Int = 0,
 	) {
 		companion object {
@@ -675,12 +678,15 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 			return out
 		}
 
-		fun addPoint(x: Float, y: Float) {
+		fun addPoint(x: Float, y: Float, t: Long = 0L) {
 			if (size >= MAX_SIZE) return
 			xs[size] = x
 			ys[size] = y
+			ts[size] = t
 			size += 1
 		}
+
+		fun getT(i: Int): Long = ts.getOrElse(i) { 0L }
 
 		fun resample(numPoints: Int): Gesture {
 			val interpointDistance = (getLength() / numPoints)
@@ -761,7 +767,7 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		fun getX(i: Int): Float = xs.getOrElse(i) { 0f }
 		fun getY(i: Int): Float = ys.getOrElse(i) { 0f }
 
-		fun clone(): Gesture = Gesture(xs.clone(), ys.clone(), size)
+		fun clone(): Gesture = Gesture(xs.clone(), ys.clone(), ts.clone(), size)
 
 		override fun equals(other: Any?): Boolean {
 			if (this === other) return true

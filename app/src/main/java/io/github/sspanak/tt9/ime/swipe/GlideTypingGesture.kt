@@ -55,7 +55,7 @@ class GlideTypingGesture {
 					val pointerIndex = event.actionIndex
 					pointerId = event.getPointerId(pointerIndex)
 					pointerData.apply {
-						positions.add(Position(event.getX(pointerIndex), event.getY(pointerIndex)))
+						positions.add(Position(event.getX(pointerIndex), event.getY(pointerIndex), event.eventTime))
 						startTime = System.currentTimeMillis()
 					}
 					return false
@@ -66,8 +66,8 @@ class GlideTypingGesture {
 					val pointerIndex = event.findPointerIndex(pointerId)
 					for (i in 0..event.historySize) {
 						val pos = when (i) {
-							event.historySize -> Position(event.getX(pointerIndex), event.getY(pointerIndex))
-							else -> Position(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
+							event.historySize -> Position(event.getX(pointerIndex), event.getY(pointerIndex), event.eventTime)
+							else -> Position(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i), event.getHistoricalEventTime(i))
 						}
 						pointerData.positions.add(pos)
 						if (pointerData.isActuallyGesture == null) {
@@ -144,7 +144,12 @@ class GlideTypingGesture {
 			var isActuallyGesture: Boolean? = null,
 		)
 
-		data class Position(val x: Float, val y: Float) {
+		/**
+		 * @param t wall-clock `MotionEvent.eventTime`. Required by the neural decoder for
+		 *          real-velocity feature extraction; defaults to 0 for callers that haven't
+		 *          been updated to thread it through.
+		 */
+		data class Position(val x: Float, val y: Float, val t: Long = 0L) {
 			fun dist(p2: Position): Float = sqrt((p2.x - x).pow(2) + (p2.y - y).pow(2))
 		}
 	}

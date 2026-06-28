@@ -57,7 +57,7 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 	override val layoutKeys: List<SwipeKey> get() = keys
 
 	override fun addGesturePoint(position: GlideTypingGesture.Detector.Position) {
-		gesture.addPoint(position.x, position.y)
+		gesture.addPoint(position.x, position.y, position.t)
 	}
 
 	override fun setLayout(keys: List<SwipeKey>) {
@@ -114,7 +114,7 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 	}
 
 	override fun initGestureFromPointerData(pointerData: GlideTypingGesture.Detector.PointerData) {
-		for (p in pointerData.positions) gesture.addPoint(p.x, p.y)
+		for (p in pointerData.positions) gesture.addPoint(p.x, p.y, p.t)
 	}
 
 	override fun getSuggestions(maxSuggestionCount: Int, gestureCompleted: Boolean): List<String> {
@@ -143,16 +143,14 @@ class NeuralGlideDecoder(private val context: Context) : GlideTypingClassifier {
 
 		val t0 = System.currentTimeMillis()
 
-		// Build SwipeInput from the gesture snapshot. Synthesize timestamps as
-		// `index × ~17ms` — touch events on Android land at ~60Hz so this approximates
-		// real time well enough for the velocity scaling. (Real MotionEvent.getEventTime()
-		// would be better; deferred to Phase 3.5.)
+		// Build SwipeInput from the gesture snapshot using REAL MotionEvent.eventTime
+		// timestamps. This is what fixes velocity scaling — uniform synthetic dt produced
+		// "flat" velocity profiles the model couldn't interpret.
 		val coordinates = ArrayList<PointF>(snapshot.pointCount)
 		val timestamps = ArrayList<Long>(snapshot.pointCount)
-		val startMs = System.currentTimeMillis() - snapshot.pointCount * 17L
 		for (i in 0 until snapshot.pointCount) {
 			coordinates.add(PointF(snapshot.getX(i), snapshot.getY(i)))
-			timestamps.add(startMs + i * 17L)
+			timestamps.add(snapshot.getT(i))
 		}
 		val swipeInput = SwipeInput(coordinates, timestamps)
 		val features = trajectoryProcessor.extractFeatures(swipeInput, MAX_SEQ_LEN)
