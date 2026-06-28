@@ -106,7 +106,11 @@ class SwipeableKeyboardContainer @JvmOverloads constructor(
 		var sx = 0f; var sy = 0f
 		for (pt in smoothBuffer) { sx += pt.x; sy += pt.y }
 		val n = smoothBuffer.size.toFloat()
-		return GlideTypingGesture.Detector.Position(sx / n, sy / n)
+		// Use the LATEST incoming point's timestamp — averaging timestamps would smear the
+		// trajectory's velocity profile, which is exactly what the neural decoder needs to read
+		// to identify deceleration-at-letter points. (Without this, t=0 fell through to
+		// SwipeTrajectoryProcessor and produced zero-dt velocity garbage.)
+		return GlideTypingGesture.Detector.Position(sx / n, sy / n, p.t)
 	}
 	// Single-threaded executor for the classifier. Keeps gestures sequential (no race between
 	// two analyses) and off the main thread so the UI stays responsive during scoring.
