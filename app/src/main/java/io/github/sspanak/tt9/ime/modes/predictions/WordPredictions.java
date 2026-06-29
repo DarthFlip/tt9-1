@@ -115,22 +115,27 @@ public class WordPredictions extends Predictions {
 		dbWords = rearrangeByPairFrequency(dbWords);
 		suggestMissingWords(generatePossibleStemVariations(dbWords), newWords);
 		// QWERTY-tap path (stem length matches digit sequence length: the user typed exact
-		// letters, no ambiguity): when there are no DB matches we must NOT fall back to
-		// generateWordVariations — that produces "stem + every letter on the last T9 digit"
-		// (e.g. "tgw" → "tgw, tgx, tgy, tgz"), the T9-textonym behavior we don't want on
-		// QWERTY. Instead, scan Tt9WordProvider's frequency-ordered vocabulary for words
-		// starting with the typed letters. This is the Gboard-style behavior on short prefixes
-		// like "th" / "wh" where the SQLite digit-sequence query doesn't surface common
-		// completions. T9 path still gets the full T9 variations.
+		// letters, no ambiguity): the T9 SQLite query is biased toward exact-length textonyms,
+		// so for short typed prefixes like "th" it returns just the literal 2-letter word and
+		// misses the obvious completions (the, this, they, them, their, then, ...). Always
+		// supplement DB results with frequency-ordered prefix matches from Tt9WordProvider's
+		// in-memory vocab. T9 path is unchanged.
+		//
+		// We do NOT call generateWordVariations on QWERTY when dbWords is empty — that
+		// produces T9-textonym fallback ("tgw" → "tgw, tgx, tgy, tgz") which is wrong for
+		// exact-letter input.
 		final boolean qwertyExactMode = !stem.isEmpty() && stem.length() == digitSequence.length();
-		if (!dbWords.isEmpty()) {
-			suggestMissingWords(dbWords, newWords);
-		} else if (qwertyExactMode && language != null) {
+		if (qwertyExactMode && language != null) {
+			if (!dbWords.isEmpty()) {
+				suggestMissingWords(dbWords, newWords);
+			}
 			suggestMissingWords(
 				Tt9WordProvider.getWordsByPrefix(language.getId(), stem.toLowerCase(language.getLocale()), 8),
 				newWords
 			);
-		} else if (!qwertyExactMode) {
+		} else if (!dbWords.isEmpty()) {
+			suggestMissingWords(dbWords, newWords);
+		} else {
 			suggestMissingWords(generateWordVariations(inputWord), newWords);
 		}
 		words = insertPunctuationCompletions(newWords);
