@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:tools="http://schemas.android.com/tools"
-	android:versionCode="1558"
-	android:versionName="61.19"
+	android:versionCode="1566"
+	android:versionName="61.27"
 	xmlns:android="http://schemas.android.com/apk/res/android">
 
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/> <!-- allows displaying notifications on Android >= 13 -->

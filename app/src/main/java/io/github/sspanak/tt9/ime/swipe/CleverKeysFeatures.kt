@@ -22,6 +22,8 @@ object CleverKeysFeatures {
 
 	const val MAX_SEQ_LEN = 250
 	const val FEATURE_DIM = 6
+	/** Fallback when the caller didn't pass a real duration. ~300ms is a typical swipe. */
+	private const val DEFAULT_DURATION_MS = 300L
 
 	data class Inputs(
 		val features: FloatArray, // size = 1 * MAX_SEQ_LEN * FEATURE_DIM
@@ -38,6 +40,10 @@ object CleverKeysFeatures {
 	fun build(
 		gesture: StatisticalGlideTypingClassifier.Gesture,
 		layoutKeys: List<SwipeKey>,
+		// Total raw-gesture duration in ms. CleverKeys computes velocity as
+		// (normalized_dx / dt_ms) — so the dt scale matters a LOT. Caller passes the actual
+		// wall-clock duration; we divide by MAX_SEQ_LEN to get per-step dt.
+		gestureDurationMs: Long = DEFAULT_DURATION_MS,
 	): Inputs {
 		val features = FloatArray(MAX_SEQ_LEN * FEATURE_DIM)
 		val nearest = IntArray(MAX_SEQ_LEN)
@@ -48,12 +54,22 @@ object CleverKeysFeatures {
 			return Inputs(features, nearest, actualLength)
 		}
 
-		// Bounding box of all key centers — same coordinate frame the model was trained in
-		// (CleverKeys normalizes against QWERTY area bounds). For arbitrary layouts the box
-		// drifts but the relative geometry is preserved which is what matters here.
-		val (minX, maxX, minY, maxY) = layoutBounds(layoutKeys)
+		// Match CleverKeys' training-time normalization: use the QWERTY AREA bounds — key
+		// edges, not key centers — so (0,0) is the top-left of the layout area and (1,1) is the
+		// bottom-right. The earlier center-based bounds slightly over-compressed coordinates and
+		// the model decoded garbage like "berke" instead of the actual word.
+		val (minX, maxX, minY, maxY) = layoutAreaBounds(layoutKeys)
 		val w = (maxX - minX).coerceAtLeast(1f)
 		val h = (maxY - minY).coerceAtLeast(1f)
+		// Finger-occlusion correction: users typically touch ABOVE the intended key by ~30% of
+		// key height (finger covers the target). CleverKeys uses a hard-coded ~74 px; we scale
+		// to the F1's actual key height which is roughly 1/4 of the average.
+		val avgKeyHeight = avgKeyHeight(layoutKeys)
+		val touchYOffset = avgKeyHeight * 0.30f
+
+		// Real-time dt per resampled step. Velocity becomes (normalized_dx / dt_ms) which is
+		// what CleverKeys' training pipeline produced — values typically 0.001-0.01 per ms.
+		val dtMs = (gestureDurationMs.toFloat() / MAX_SEQ_LEN).coerceAtLeast(0.5f)
 
 		// Resample to MAX_SEQ_LEN points via cumulative arc-length. Pads short gestures by
 		// repeating the last point (with zero derivatives) so the downstream tensor still
@@ -69,17 +85,19 @@ object CleverKeysFeatures {
 		var prevVy = 0f
 		for (t in 0 until len) {
 			val rawX = resampled[t].first
-			val rawY = resampled[t].second
+			// Apply touchYOffset: shift the touch DOWN to the user's intended position before
+			// normalizing. (User touches above intended target → adjusted = raw + offset.)
+			val rawY = resampled[t].second + touchYOffset
 			val nx = (rawX - minX) / w
 			val ny = (rawY - minY) / h
 
-			// Finite-difference velocity / acceleration. dt = 1 (per-step) since we resampled
-			// uniformly by arc-length — true dt isn't preserved by this resample, but neither
-			// was it in CleverKeys' training preprocessing.
-			val vx = if (t == 0) 0f else nx - prevX
-			val vy = if (t == 0) 0f else ny - prevY
-			val ax = if (t < 2) 0f else vx - prevVx
-			val ay = if (t < 2) 0f else vy - prevVy
+			// Finite-difference velocity / acceleration, divided by real-time dt in ms. Match
+			// CleverKeys' training pipeline. Clipped to [-10, 10] so a degenerate dt → 0 doesn't
+			// produce inf-velocity that explodes the model.
+			val vx = if (t == 0) 0f else ((nx - prevX) / dtMs).coerceIn(-10f, 10f)
+			val vy = if (t == 0) 0f else ((ny - prevY) / dtMs).coerceIn(-10f, 10f)
+			val ax = if (t < 2) 0f else ((vx - prevVx) / dtMs).coerceIn(-10f, 10f)
+			val ay = if (t < 2) 0f else ((vy - prevVy) / dtMs).coerceIn(-10f, 10f)
 
 			val base = t * FEATURE_DIM
 			features[base + 0] = nx
@@ -170,8 +188,14 @@ object CleverKeysFeatures {
 		return pts
 	}
 
+	/**
+	 * Map a touch point to CleverKeys' canonical "nearest key token". The model was trained with
+	 * `(char - 'a') + 4` indexing — same scheme as the vocab tokens — so 'a'=4, 'b'=5, ..., 'z'=29.
+	 * Layout list-position (what I had before) makes the model produce garbage because the embedding
+	 * table is keyed on canonical positions, not whatever order Android's view tree returns keys in.
+	 */
 	private fun nearestKeyIndex(x: Float, y: Float, keys: List<SwipeKey>): Int {
-		var best = 0
+		var bestIdx = -1
 		var bestDist = Float.MAX_VALUE
 		for (i in keys.indices) {
 			val dx = keys[i].centerX - x
@@ -179,24 +203,44 @@ object CleverKeysFeatures {
 			val d = dx * dx + dy * dy
 			if (d < bestDist) {
 				bestDist = d
-				best = i
+				bestIdx = i
 			}
 		}
-		return best
+		if (bestIdx < 0) return PAD_TOKEN
+		val ch = keys[bestIdx].code.toChar().lowercaseChar()
+		return if (ch in 'a'..'z') (ch - 'a') + FIRST_LETTER_TOKEN else PAD_TOKEN
 	}
 
-	private fun layoutBounds(keys: List<SwipeKey>): Bounds {
+	private const val PAD_TOKEN = 0
+	private const val FIRST_LETTER_TOKEN = 4
+
+	/**
+	 * Layout AREA bounds — extends each key center by ± half the key's width/height to capture
+	 * the actual touchable region. (0,0) is the top-left edge of the leftmost-topmost key;
+	 * (1,1) is the bottom-right edge of the rightmost-bottommost key. Closer to CleverKeys'
+	 * training-time "QWERTY area" frame than center-only bounds.
+	 */
+	private fun layoutAreaBounds(keys: List<SwipeKey>): Bounds {
 		var minX = Float.MAX_VALUE
 		var maxX = -Float.MAX_VALUE
 		var minY = Float.MAX_VALUE
 		var maxY = -Float.MAX_VALUE
 		for (k in keys) {
-			if (k.centerX < minX) minX = k.centerX
-			if (k.centerX > maxX) maxX = k.centerX
-			if (k.centerY < minY) minY = k.centerY
-			if (k.centerY > maxY) maxY = k.centerY
+			val hw = k.width / 2f
+			val hh = k.height / 2f
+			if (k.centerX - hw < minX) minX = k.centerX - hw
+			if (k.centerX + hw > maxX) maxX = k.centerX + hw
+			if (k.centerY - hh < minY) minY = k.centerY - hh
+			if (k.centerY + hh > maxY) maxY = k.centerY + hh
 		}
 		return Bounds(minX, maxX, minY, maxY)
+	}
+
+	private fun avgKeyHeight(keys: List<SwipeKey>): Float {
+		if (keys.isEmpty()) return 0f
+		var sum = 0f
+		for (k in keys) sum += k.height
+		return sum / keys.size
 	}
 
 	private data class Bounds(val minX: Float, val maxX: Float, val minY: Float, val maxY: Float)

@@ -1,28 +1,39 @@
-// Downloads CleverKeys' swipe-typing encoder + decoder ONNX models to
-// app/src/main/assets/models/ so NeuralGlideDecoder can load them at runtime.
-// Both files are GPL-3.0 (same license as tt9 — no separate attribution required),
-// so they could be committed; kept out of git to keep the repo small and let the
-// build pull the canonical upstream.
+// CleverKeys' swipe-typing encoder + decoder weights are committed to this repo as
+// ORT-format files (app/src/main/assets/models/swipe_*.ort). CleverKeys is GPL-3.0 —
+// same license as tt9 — so the weights can live in-tree without license friction.
 //
-// Wired into mergeAssets via the apply block below — idempotent: skips when the
-// file already exists with the right SHA256.
+// We re-encoded from the upstream .onnx → .ort via:
+//   python -m onnxruntime.tools.convert_onnx_models_to_ort \
+//     --optimization_style Runtime --target_platform arm <dir>/
+// ORT format guarantees flatbuffer 4-byte alignment, fixing the SIGBUS/BUS_ADRALN
+// crash ORT 1.20-1.26 hits when loading raw .onnx on the F1's strict-alignment armv7.
+//
+// This task remains as a safety net for clean checkouts: if the .ort files somehow go
+// missing, fetch raw .onnx from upstream and re-encode via a local Python+onnxruntime
+// install. Skipped on every normal build.
 
 def neuralModelDir = file("${projectDir}/src/main/assets/models")
-def encoderFile = new File(neuralModelDir, "swipe_encoder.onnx")
-def decoderFile = new File(neuralModelDir, "swipe_decoder.onnx")
-def encoderSha256 = "964c721783df57a0a98aec67fb7db84732e0139d1b5ef9ff08c5b1fd2480f817"
-def decoderSha256 = "b438984986dbb0afeeac9551dcba8fc2ea87eea6bb011a0381dd93cc8cf92c0d"
+def encoderOrt = new File(neuralModelDir, "swipe_encoder.ort")
+def decoderOrt = new File(neuralModelDir, "swipe_decoder.ort")
 def encoderUrl = "https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_encoder_android.onnx"
 def decoderUrl = "https://raw.githubusercontent.com/tribixbite/CleverKeys/main/src/main/assets/models/swipe_decoder_android.onnx"
 
 tasks.register('downloadNeuralModel') {
-	outputs.file encoderFile
-	outputs.file decoderFile
+	outputs.file encoderOrt
+	outputs.file decoderOrt
 
 	doLast {
-		neuralModelDir.mkdirs()
-		fetchIfMissing(encoderFile, encoderUrl, encoderSha256, "swipe encoder")
-		fetchIfMissing(decoderFile, decoderUrl, decoderSha256, "swipe decoder")
+		if (encoderOrt.exists() && decoderOrt.exists()) return
+		throw new GradleException(
+			"Missing ORT model files: ${encoderOrt.name}, ${decoderOrt.name}. " +
+			"To regenerate from upstream:\n" +
+			"  curl -L -o /tmp/enc.onnx ${encoderUrl}\n" +
+			"  curl -L -o /tmp/dec.onnx ${decoderUrl}\n" +
+			"  python -m onnxruntime.tools.convert_onnx_models_to_ort " +
+			"--optimization_style Runtime --target_platform arm /tmp/\n" +
+			"  cp /tmp/enc.with_runtime_opt.ort ${encoderOrt}\n" +
+			"  cp /tmp/dec.with_runtime_opt.ort ${decoderOrt}"
+		)
 	}
 }
 
@@ -32,37 +43,5 @@ androidComponents {
 		tasks.matching { it.name == "merge${variantName}Assets" }.configureEach {
 			dependsOn(downloadNeuralModel)
 		}
-	}
-}
-
-def fetchIfMissing(File f, String url, String expectedSha, String label) {
-	if (f.exists() && sha256Of(f) == expectedSha) return
-	logger.lifecycle("downloading CleverKeys $label (${url})")
-	downloadTo(url, f)
-	def actual = sha256Of(f)
-	if (actual != expectedSha) {
-		throw new GradleException(
-			"SHA256 mismatch for ${f.name}: expected ${expectedSha}, got ${actual}"
-		)
-	}
-}
-
-static String sha256Of(File f) {
-	def md = java.security.MessageDigest.getInstance("SHA-256")
-	f.withInputStream { is ->
-		def buf = new byte[8192]
-		int n
-		while ((n = is.read(buf)) != -1) md.update(buf, 0, n)
-	}
-	return md.digest().collect { String.format('%02x', it) }.join('')
-}
-
-static void downloadTo(String urlStr, File dest) {
-	def url = new URL(urlStr)
-	def conn = url.openConnection()
-	conn.setInstanceFollowRedirects(true)
-	conn.connect()
-	conn.inputStream.withCloseable { input ->
-		dest.withOutputStream { out -> out << input }
 	}
 }

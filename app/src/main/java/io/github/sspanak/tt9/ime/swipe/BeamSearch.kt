@@ -23,8 +23,13 @@ import kotlin.math.ln
 typealias DecoderCall = (tokens: IntArray, numBeams: Int) -> FloatArray?
 
 class BeamSearch(
-	private val beamWidth: Int = 4,
-	private val maxSteps: Int = 12,
+	// Tuned for armv7 latency. On the Schok F1's A55 the encoder is ~10s and each decoder
+	// call ~2s, so total ≈ encoder + beamWidth × maxSteps × decoderCallCost. With beam=3
+	// and maxSteps=8 → encoder + 48s worst case, but most beams hit EOS or trie dead-end
+	// earlier so typical is 15–25s. Still slow; further speedup needs XNNPACK provider
+	// or model quantization.
+	private val beamWidth: Int = 3,
+	private val maxSteps: Int = 8,
 	private val lengthAlpha: Float = 1.0f,
 	private val freqWeight: Float = 0.4f,
 	private val contextBonus: Float = 1.5f,
