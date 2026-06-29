@@ -118,6 +118,13 @@ public class StatusBar {
 
 
 	public void setText(InputMode inputMode) {
+		// On the QWERTY layout, the user can see the letters they're typing directly — the
+		// "[ English ]" / "[ ABC ]" mode indicator is redundant and visually noisy. Hide it so
+		// the strip area stays clean when there are no suggestions (Gboard does the same).
+		if (settings.isMainLayoutQwerty()) {
+			setText("");
+			return;
+		}
 		setText("[ " + inputMode.toString() + " ]");
 	}
 

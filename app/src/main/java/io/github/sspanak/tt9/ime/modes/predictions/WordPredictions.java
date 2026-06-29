@@ -115,14 +115,21 @@ public class WordPredictions extends Predictions {
 		dbWords = rearrangeByPairFrequency(dbWords);
 		suggestMissingWords(generatePossibleStemVariations(dbWords), newWords);
 		// QWERTY-tap path (stem length matches digit sequence length: the user typed exact
-		// letters, no ambiguity): when there are no DB matches, DO NOT fall back to
+		// letters, no ambiguity): when there are no DB matches we must NOT fall back to
 		// generateWordVariations — that produces "stem + every letter on the last T9 digit"
-		// (e.g. "tgw" → "tgw, tgx, tgy, tgz"), which is the T9-textonym behavior we explicitly
-		// don't want on QWERTY. The fuzzy injection below (Damerau-Levenshtein-1) is the
-		// QWERTY-appropriate fallback. T9 path still gets the full variations.
+		// (e.g. "tgw" → "tgw, tgx, tgy, tgz"), the T9-textonym behavior we don't want on
+		// QWERTY. Instead, scan Tt9WordProvider's frequency-ordered vocabulary for words
+		// starting with the typed letters. This is the Gboard-style behavior on short prefixes
+		// like "th" / "wh" where the SQLite digit-sequence query doesn't surface common
+		// completions. T9 path still gets the full T9 variations.
 		final boolean qwertyExactMode = !stem.isEmpty() && stem.length() == digitSequence.length();
 		if (!dbWords.isEmpty()) {
 			suggestMissingWords(dbWords, newWords);
+		} else if (qwertyExactMode && language != null) {
+			suggestMissingWords(
+				Tt9WordProvider.getWordsByPrefix(language.getId(), stem.toLowerCase(language.getLocale()), 8),
+				newWords
+			);
 		} else if (!qwertyExactMode) {
 			suggestMissingWords(generateWordVariations(inputWord), newWords);
 		}

@@ -131,6 +131,30 @@ class Tt9WordProvider private constructor() : WordProvider {
 		}
 
 		/**
+		 * Returns up to [maxResults] vocabulary words starting with [prefix] (lowercase), in the
+		 * vocabulary's stored order. For languages whose vocab exceeds [VOCAB_CAP] (≥40k), that
+		 * order is descending frequency — so the most common completions surface first and the
+		 * loop typically breaks early. Empty list if the provider for [languageId] isn't loaded
+		 * yet. Used by WordPredictions to fall back to letter-prefix matching when the SQLite
+		 * digit-sequence query returns insufficient hits on short QWERTY-typed prefixes.
+		 */
+		@JvmStatic
+		fun getWordsByPrefix(languageId: Int, prefix: String, maxResults: Int): java.util.ArrayList<String> {
+			val out = java.util.ArrayList<String>()
+			if (prefix.isEmpty() || maxResults <= 0) return out
+			val provider = synchronized(cache) { cache[languageId] } ?: return out
+			if (!provider.isLoaded) return out
+			val lowered = prefix.lowercase()
+			for (w in provider.words) {
+				if (out.size >= maxResults) break
+				if (w.length > lowered.length && w.startsWith(lowered)) {
+					out.add(w)
+				}
+			}
+			return out
+		}
+
+		/**
 		 * O(1) membership test against the loaded vocabulary for [languageId]. Lowercases [word]
 		 * before lookup so callers don't have to. Returns false if the provider hasn't been loaded
 		 * yet (no false positives — silently degrades to "no fuzzy candidates this round"). Used by
