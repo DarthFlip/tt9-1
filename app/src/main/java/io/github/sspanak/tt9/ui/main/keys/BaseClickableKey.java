@@ -101,9 +101,8 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 				final float dx = event.getX() - downX;
 				final float dy = event.getY() - downY;
 				final float distSq = dx * dx + dy * dy;
-				final boolean suppressed = isTapSlopActive() && distSq > tapSlopPx * tapSlopPx;
-				Logger.d(LOG_TAG, "tap-up dx²+dy²=" + distSq + " slop²=" + (tapSlopPx * tapSlopPx) + " suppressed=" + suppressed);
-				if (suppressed) {
+				if (isTapSlopActive() && distSq > tapSlopPx * tapSlopPx) {
+					// Touch was a swipe through this key, not a tap on it. Don't emit.
 					return false;
 				}
 				boolean result = handleRelease();

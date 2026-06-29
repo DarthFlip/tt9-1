@@ -71,8 +71,11 @@ public class SoftKeyQwertyInputMode extends SoftKeyLF4 {
 
 	/**
 	 * Walk up the view tree to the SwipeableKeyboardContainer, find the letter and symbols
-	 * panels by id, and flip which is visible. Returns true if both panels were found and
-	 * toggled; false otherwise.
+	 * panels by id, and flip which is visible. Both panels live in a FrameLayout wrapper so
+	 * we use INVISIBLE rather than GONE on the hidden one — this keeps both panels measured
+	 * and laid out, so the toggle is just a draw-bit flip with no measure/layout pass. Touch
+	 * events still go to the visible panel only (Android skips INVISIBLE for dispatch).
+	 * Returns true if both panels were found and toggled; false otherwise.
 	 */
 	private boolean toggleSymbolsPanel() {
 		ViewGroup container = findKeysContainer();
@@ -81,8 +84,8 @@ public class SoftKeyQwertyInputMode extends SoftKeyLF4 {
 		View symbolsPanel = container.findViewById(R.id.qwerty_symbols_panel);
 		if (letterPanel == null || symbolsPanel == null) return false;
 		boolean showSymbols = symbolsPanel.getVisibility() != View.VISIBLE;
-		symbolsPanel.setVisibility(showSymbols ? View.VISIBLE : View.GONE);
-		letterPanel.setVisibility(showSymbols ? View.GONE : View.VISIBLE);
+		symbolsPanel.setVisibility(showSymbols ? View.VISIBLE : View.INVISIBLE);
+		letterPanel.setVisibility(showSymbols ? View.INVISIBLE : View.VISIBLE);
 		return true;
 	}
 

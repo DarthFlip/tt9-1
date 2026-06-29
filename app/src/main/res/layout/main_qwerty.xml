@@ -21,6 +21,16 @@
 			android:layout_height="wrap_content"
 			android:orientation="vertical">
 
+			<!-- Panels wrapper: both letter and symbols panels stack as siblings in a FrameLayout
+			     so they occupy the same screen position. Switching uses VISIBLE/INVISIBLE on each
+			     so the visibility change doesn't trigger a measure/layout pass — both panels are
+			     measured once at first layout, and subsequent toggles only flip the draw bit.
+			     This makes the ?123/ABC switch feel instant. -->
+			<FrameLayout
+				android:id="@+id/qwerty_panels_wrapper"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content">
+
 			<!-- LETTER PANEL: rows 1-4. Hidden when symbols mode active. -->
 			<LinearLayout
 				android:id="@+id/qwerty_letter_panel"
@@ -135,8 +145,11 @@
 			</LinearLayout> <!-- end qwerty_letter_panel -->
 
 			<!-- SYMBOLS PANEL: rows 1-4 with numbers + symbols + same bottom UX.
-			     Hidden by default; SoftKeyQwertyInputMode.handleRelease() toggles. -->
+			     Hidden by default (INVISIBLE so measure/layout already done);
+			     SoftKeyQwertyInputMode.handleRelease() flips it to VISIBLE. -->
 			<include layout="@layout/panel_qwerty_symbols" />
+
+			</FrameLayout> <!-- end qwerty_panels_wrapper -->
 
 		</io.github.sspanak.tt9.ime.swipe.SwipeableKeyboardContainer>
 
