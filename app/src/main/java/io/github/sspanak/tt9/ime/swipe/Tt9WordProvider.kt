@@ -35,6 +35,12 @@ class Tt9WordProvider private constructor() : WordProvider {
 	// close in score for the boost alone to flip them. Lowercase keys; one preferred per
 	// rejected (last write wins — if the user later rejects A in favor of C, A→C overwrites).
 	private val confusedPairs = java.util.concurrent.ConcurrentHashMap<String, String>()
+	// Personal dictionary: words the user has committed multiple times that aren't in the
+	// factory dictionary. After PERSONAL_DICT_PROMOTION_THRESHOLD commits, a word graduates
+	// into freqByWord with a high frequency so it surfaces as a regular prefix/fuzzy match.
+	// Counter map tracks pre-promotion progress; once a word is in the dictionary the counter
+	// entry can stay or be cleared on next save — its presence doesn't change behavior.
+	private val personalCounter = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
 	val isLoaded: Boolean get() = words.isNotEmpty()
 
@@ -63,7 +69,15 @@ class Tt9WordProvider private constructor() : WordProvider {
 		private const val PREFIX_BOOST = "lang_%d_boost"
 		private const val PREFIX_PENALTY = "lang_%d_penalty"
 		private const val PREFIX_PAIRS = "lang_%d_pairs"
+		private const val PREFIX_PERSONAL = "lang_%d_personal"
+		private const val PREFIX_PERSONAL_COUNTS = "lang_%d_personal_counts"
 		private const val SAVE_DEBOUNCE_MS = 1500L
+
+		/** How many times an unknown word must be committed before it enters the personal dict. */
+		private const val PERSONAL_DICT_PROMOTION_THRESHOLD = 3
+		/** Frequency assigned to a promoted personal-dict word — high enough to surface as a
+		 *  prefix match, below 1.0 so factory top-frequency words still beat it tie-for-tie. */
+		private const val PERSONAL_DICT_FREQUENCY = 0.85f
 		@Volatile private var appContext: Context? = null
 		private val saveHandler = Handler(Looper.getMainLooper())
 		private val pendingSaves = java.util.concurrent.ConcurrentHashMap<Int, Runnable>()
@@ -152,6 +166,45 @@ class Tt9WordProvider private constructor() : WordProvider {
 		}
 
 		/**
+		 * Record that [word] was just committed (e.g. via space, glide, or strip tap) in
+		 * [languageId]. If the word isn't in the factory dictionary, increment its personal-
+		 * commit counter; on the PERSONAL_DICT_PROMOTION_THRESHOLD-th commit, promote it into
+		 * the in-memory vocabulary so future prefix/fuzzy/bigram lookups surface it like any
+		 * other word. Already-known words skip the counter entirely (cheap fast path).
+		 *
+		 * Called from TypingHandler whenever a complete alphabetic word commits.
+		 */
+		@JvmStatic
+		fun noteCommittedWord(languageId: Int, word: String) {
+			if (word.isEmpty()) return
+			val provider = synchronized(cache) { cache[languageId] } ?: return
+			if (!provider.isLoaded) return
+			val key = word.lowercase()
+			// Skip words already in the factory or personal vocab — no need to track them.
+			if (provider.freqByWord.containsKey(key)) return
+			// Increment the counter; promote if we've hit the threshold.
+			val newCount = provider.personalCounter.merge(key, 1) { a, b -> a + b } ?: 1
+			if (newCount >= PERSONAL_DICT_PROMOTION_THRESHOLD) {
+				promotePersonalWord(provider, key)
+				provider.personalCounter.remove(key)
+			}
+			scheduleSave(languageId)
+		}
+
+		/** Adds [word] to the provider's words list + freqByWord with a high frequency. Idempotent. */
+		private fun promotePersonalWord(provider: Tt9WordProvider, word: String) {
+			if (provider.freqByWord.containsKey(word)) return
+			val newFreq = HashMap<String, Float>(provider.freqByWord.size + 1)
+			newFreq.putAll(provider.freqByWord)
+			newFreq[word] = PERSONAL_DICT_FREQUENCY
+			val newWords = ArrayList<String>(provider.words.size + 1)
+			newWords.addAll(provider.words)
+			newWords.add(word)
+			provider.freqByWord = newFreq
+			provider.words = newWords
+		}
+
+		/**
 		 * Debounced save. Coalesces multiple bumps/penalties/pair-records into a single disk
 		 * write per language ~1.5 s after the last mutation. Cheap to call from the hot path.
 		 */
@@ -170,10 +223,22 @@ class Tt9WordProvider private constructor() : WordProvider {
 
 		private fun saveLearningSync(ctx: Context, languageId: Int, provider: Tt9WordProvider) {
 			val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+			// Personal vocab: the words the user has promoted past the threshold, one per line.
+			// Stored separately from the regular vocab so freqByWord can recompute on language
+			// reload (after the factory vocab loads) without losing personal additions.
+			val personalLines = StringBuilder()
+			for (key in provider.freqByWord.keys) {
+				val f = provider.freqByWord[key] ?: 0f
+				if (f >= PERSONAL_DICT_FREQUENCY - 0.001f && f <= PERSONAL_DICT_FREQUENCY + 0.001f) {
+					if (!key.contains('\n')) personalLines.append(key).append('\n')
+				}
+			}
 			prefs.edit()
 				.putString(PREFIX_BOOST.format(languageId), encodeFloatMap(provider.sessionBoost))
 				.putString(PREFIX_PENALTY.format(languageId), encodeFloatMap(provider.sessionPenalty))
 				.putString(PREFIX_PAIRS.format(languageId), encodeStringMap(provider.confusedPairs))
+				.putString(PREFIX_PERSONAL.format(languageId), personalLines.toString())
+				.putString(PREFIX_PERSONAL_COUNTS.format(languageId), encodeIntMap(provider.personalCounter))
 				.apply()
 		}
 
@@ -182,6 +247,14 @@ class Tt9WordProvider private constructor() : WordProvider {
 			decodeFloatMap(prefs.getString(PREFIX_BOOST.format(languageId), null), provider.sessionBoost)
 			decodeFloatMap(prefs.getString(PREFIX_PENALTY.format(languageId), null), provider.sessionPenalty)
 			decodeStringMap(prefs.getString(PREFIX_PAIRS.format(languageId), null), provider.confusedPairs)
+			decodeIntMap(prefs.getString(PREFIX_PERSONAL_COUNTS.format(languageId), null), provider.personalCounter)
+			// Promote each saved personal word back into the live vocabulary.
+			val personalRaw = prefs.getString(PREFIX_PERSONAL.format(languageId), null)
+			if (!personalRaw.isNullOrEmpty()) {
+				for (line in personalRaw.split('\n')) {
+					if (line.isNotEmpty()) promotePersonalWord(provider, line)
+				}
+			}
 		}
 
 		// TSV encoding: word\tvalue\n... — robust against tabs/newlines in keys because
@@ -213,6 +286,27 @@ class Tt9WordProvider private constructor() : WordProvider {
 				val tab = line.indexOf('\t')
 				if (tab <= 0) continue
 				val v = line.substring(tab + 1).toFloatOrNull() ?: continue
+				into[line.substring(0, tab)] = v
+			}
+		}
+
+		private fun encodeIntMap(m: Map<String, Int>): String {
+			if (m.isEmpty()) return ""
+			val sb = StringBuilder(m.size * 8)
+			for ((k, v) in m) {
+				if (k.contains('\t') || k.contains('\n')) continue
+				sb.append(k).append('\t').append(v).append('\n')
+			}
+			return sb.toString()
+		}
+
+		private fun decodeIntMap(s: String?, into: java.util.concurrent.ConcurrentHashMap<String, Int>) {
+			if (s.isNullOrEmpty()) return
+			for (line in s.split('\n')) {
+				if (line.isEmpty()) continue
+				val tab = line.indexOf('\t')
+				if (tab <= 0) continue
+				val v = line.substring(tab + 1).toIntOrNull() ?: continue
 				into[line.substring(0, tab)] = v
 			}
 		}

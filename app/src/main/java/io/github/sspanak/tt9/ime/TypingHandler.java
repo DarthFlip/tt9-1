@@ -327,6 +327,7 @@ public abstract class TypingHandler extends KeyPadHandler {
 			textField.setText(Characters.getSpace(mLanguage));
 			final String lowerLast = lastWord.toLowerCase();
 			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lowerLast);
+			Tt9WordProvider.noteCommittedWord(mLanguage.getId(), lowerLast);
 			// Confused-pair learner: if the user just rejected a different word in the recent
 			// past (same language), interpret this commit as "this is what I meant instead."
 			// Record the pair so the classifier swaps them whenever both surface together.
@@ -753,8 +754,12 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// Keep glide's in-memory per-user frequency map in sync without an SQLite reload. Disk
 		// frequencies are still incremented by the T9 acceptance path; this just nudges the
 		// glide-side ranking so words the user just chose are more likely to win next time.
+		// Also feeds the personal-dictionary auto-add — Tt9WordProvider tracks unrecognized
+		// words and promotes them after 3 commits.
 		if (mLanguage != null && text != null && !text.isEmpty() && new Text(text).isAlphabetic()) {
-			Tt9WordProvider.bumpFrequency(mLanguage.getId(), text.toLowerCase());
+			final String lowered = text.toLowerCase();
+			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lowered);
+			Tt9WordProvider.noteCommittedWord(mLanguage.getId(), lowered);
 		}
 
 		// Gboard-style next-word predictions: after a word commits (space, punctuation, or text
