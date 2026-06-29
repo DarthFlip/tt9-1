@@ -9,7 +9,9 @@ apply from: 'validate-languages.gradle'
 apply from: 'help-tools.gradle'
 apply from: 'status-icon-tools.gradle'
 apply from: 'version-tools.gradle'
-apply from: 'download-neural-model.gradle'
+// (Removed) apply from: 'download-neural-model.gradle' — the neural swipe decoder was
+// retired in favor of the statistical SHARK² classifier. The ORT model files it guarded
+// have been deleted from assets/models/.
 
 
 tasks.register('validateLanguages') {
@@ -231,10 +233,8 @@ dependencies {
 	implementation 'com.google.android.material:material:1.13.0'
 	premiumImplementation 'com.android.billingclient:billing:8.3.0'
 
-	// Neural swipe decoder runtime — ONNX Runtime ships native libs for armeabi-v7a (32-bit
-	// ARM), which is what the Schok F1 is. ExecuTorch can't help here (arm64-only).
-	// Bumped from 1.20.0 → 1.26.0: 1.20.0's armv7 build hit a SIGBUS/BUS_ADRALN inside the
-	// flatbuffer model parser during createSession, regardless of byte-array vs file-path
-	// loading. Hoping 1.26.0's alignment fixes resolve it. License: MIT (GPL-compatible).
-	implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.26.0'
+	// (Removed) com.microsoft.onnxruntime:onnxruntime-android — the neural swipe decoder was
+	// retired in favor of the SHARK² statistical classifier, which works well on armv7
+	// without the ~12 MB native runtime + ~10 MB model assets that ONNX brought along. If
+	// neural decoding is revisited, restore: implementation 'com.microsoft.onnxruntime:onnxruntime-android:<version>'
 }

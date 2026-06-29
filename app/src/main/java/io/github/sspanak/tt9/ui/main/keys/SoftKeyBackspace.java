@@ -120,8 +120,21 @@ public class SoftKeyBackspace extends BaseSwipeableKey {
 	final protected void handleHold() {
 		isActionPerformed = true;
 		repeat++;
-		CmdBackspace.deleteText(tt9, repeat);
+		// After ~12 repeat ticks (≈600 ms of holding at the default 50 ms repeat delay), switch
+		// from single-character deletion to whole-word deletion. Standard Gboard behavior — the
+		// first hundreds of ms of hold delete one char at a time so the user can correct a single
+		// typo without overshooting; past that, the user is clearly clearing a longer mistake and
+		// word-at-a-time is dramatically faster. The existing sideways-swipe-on-backspace
+		// gesture (handleSwipeX above) also deletes whole words; this is the long-press equivalent.
+		if (repeat >= WORD_DELETE_REPEAT_THRESHOLD) {
+			CmdBackspace.deleteWord(tt9);
+		} else {
+			CmdBackspace.deleteText(tt9, repeat);
+		}
 	}
+
+	/** Repeat-tick count past which a hold transitions from char-delete to word-delete. */
+	private static final int WORD_DELETE_REPEAT_THRESHOLD = 12;
 
 
 	@Override

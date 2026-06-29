@@ -698,6 +698,21 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// Text input after a glide commit means the user moved on, not rejected. Drop the arm.
 		clearGlideRejectionArm();
 
+		// Smart-period: double-tapping space at the end of a word should commit ". " (period
+		// + space) instead of a redundant second space. Standard Gboard behavior. Only fires
+		// when the char immediately before the cursor is a space AND the char before THAT is
+		// alphanumeric — guards against firing inside code/URL contexts or when the user
+		// genuinely wants a double-space.
+		if (" ".equals(text) && mLanguage != null) {
+			final String beforeCursor = textField.getStringBeforeCursor(2);
+			if (beforeCursor != null && beforeCursor.length() == 2
+					&& beforeCursor.charAt(1) == ' '
+					&& Character.isLetterOrDigit(beforeCursor.charAt(0))) {
+				textField.deleteChars(mLanguage, 1);
+				text = ". ";
+			}
+		}
+
 		String[] surroundingChars;
 
 		// accept the previously typed word (if any)
