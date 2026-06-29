@@ -849,7 +849,12 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// fires after the keyboard view inflates — by then the user has already typed the
 		// first letters and seen empty/T9-shaped suggestions. Triggering here gets the load
 		// running while the IME is still wiring up.
+		//
+		// Also attach the application Context so Tt9WordProvider can persist its learning
+		// (sessionBoost / sessionPenalty / confusedPairs) across IME process kills. Without
+		// this, every restart would wipe per-user learning.
 		if (mLanguage != null && mLanguage.getId() > 0) {
+			Tt9WordProvider.attachContext(getApplicationContext());
 			Tt9WordProvider.preload(mLanguage);
 		}
 
