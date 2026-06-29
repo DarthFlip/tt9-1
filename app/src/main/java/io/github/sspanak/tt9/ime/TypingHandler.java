@@ -67,6 +67,14 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 	// output: mind-reading
 	@NonNull protected final MindReader mindReader = new MindReader();
+
+	// Wrong-result rejection signal — set whenever a glide gesture commits a word. If the user
+	// backspaces within REJECTION_WINDOW_MS, the committed word was almost certainly wrong; we
+	// penalize its glide frequency so similar gestures don't pick it again. Cleared on accept
+	// of any other word, or when the window expires.
+	private static final long REJECTION_WINDOW_MS = 3000L;
+	private String lastGlideCommittedWord = "";
+	private long lastGlideCommitTimeMs = 0L;
 	abstract protected void autoCompleteOnNumber(double loadingId, @NonNull String[] surroundingChars, @Nullable String lastWord, int number);
 	abstract protected void guessNextWord(@NonNull String[] surroundingText, @Nullable String lastWord);
 	abstract protected boolean shouldAcceptGuessesOnNumber(int key);
@@ -291,6 +299,10 @@ public abstract class TypingHandler extends KeyPadHandler {
 		if (mLanguage != null && new Text(lastWord).isAlphabetic()) {
 			textField.setText(Characters.getSpace(mLanguage));
 			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lastWord.toLowerCase());
+			// Arm the rejection-window: if the user backspaces within REJECTION_WINDOW_MS,
+			// this commit was wrong and we'll penalize lastWord's frequency.
+			lastGlideCommittedWord = lastWord.toLowerCase();
+			lastGlideCommitTimeMs = System.currentTimeMillis();
 		}
 		composingWord.clear();
 	}
@@ -507,6 +519,17 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// otherwise, keyDown race condition occur for all keys.
 		if (InputModeKind.isPassthrough(mInputMode)) {
 			return false;
+		}
+		// Wrong-result penalty: if the user is backspacing within REJECTION_WINDOW_MS of a
+		// glide-committed word, that commit was almost certainly wrong. Penalize the word's
+		// glide-frequency so subsequent similar gestures don't pick it again. We capture only
+		// once per commit (clear after firing) so multi-backspace word-deletion doesn't
+		// hammer the same word multiple times.
+		if (!lastGlideCommittedWord.isEmpty()
+				&& mLanguage != null
+				&& System.currentTimeMillis() - lastGlideCommitTimeMs < REJECTION_WINDOW_MS) {
+			Tt9WordProvider.penalizeFrequency(mLanguage.getId(), lastGlideCommittedWord);
+			lastGlideCommittedWord = ""; // single-fire: don't penalize again on repeat backspaces
 		}
 
 		// Keep the shared composing buffer in lockstep with ModeWords' digitSequence.

@@ -20,6 +20,11 @@ class Tt9WordProvider private constructor() : WordProvider {
 	// just-accepted words rerank for glide without re-reading the DB. The disk-side T9 frequency
 	// column is still updated by the existing T9 acceptance path.
 	private val sessionBoost = java.util.concurrent.ConcurrentHashMap<String, Float>()
+	// Inverse layer: when the user backspaces a just-glide-committed word, the rejected word's
+	// effective frequency is scaled DOWN. Stored as a penalty in [0, 0.9]; the multiplier
+	// applied in getFrequencyForWord is (1 - penalty). Accumulates across multiple rejections
+	// of the same word — three strikes leaves it ~very-low priority.
+	private val sessionPenalty = java.util.concurrent.ConcurrentHashMap<String, Float>()
 
 	val isLoaded: Boolean get() = words.isNotEmpty()
 
@@ -28,7 +33,9 @@ class Tt9WordProvider private constructor() : WordProvider {
 	override fun getFrequencyForWord(word: String): Float {
 		val base = freqByWord[word] ?: 0f
 		val boost = sessionBoost[word] ?: 0f
-		return (base + boost).coerceAtMost(1f)
+		val penalty = sessionPenalty[word] ?: 0f
+		val penaltyMul = (1f - penalty).coerceAtLeast(0.05f)
+		return ((base + boost) * penaltyMul).coerceAtMost(1f)
 	}
 
 	companion object {
@@ -38,6 +45,8 @@ class Tt9WordProvider private constructor() : WordProvider {
 		// had to pick the same word 3-4 times before it reliably reranked above shape-similar
 		// distractors. At 0.25, a single acceptance is decisive next time.
 		private const val FREQUENCY_BUMP_PER_USE: Float = 0.25f
+		/** Per-rejection penalty added to sessionPenalty. Capped at 0.9 in the merger above. */
+		private const val PENALTY_PER_REJECTION: Float = 0.30f
 
 		/**
 		 * Increment the in-memory frequency boost for [word] in [languageId]'s cached provider.
@@ -50,6 +59,25 @@ class Tt9WordProvider private constructor() : WordProvider {
 			val provider = synchronized(cache) { cache[languageId] } ?: return
 			if (!provider.isLoaded) return
 			provider.sessionBoost.merge(word, FREQUENCY_BUMP_PER_USE) { a, b -> (a + b).coerceAtMost(1f) }
+			// If the user is re-accepting a word they previously rejected, clear the penalty —
+			// they've changed their mind. Avoids cementing wrong rejections.
+			provider.sessionPenalty.remove(word)
+		}
+
+		/**
+		 * Penalize [word] for [languageId] — call when the user has just rejected this word
+		 * (e.g. backspaced a just-glide-committed suggestion). Accumulates across rejections;
+		 * three rejections drop the word to ~5% of its base frequency.
+		 */
+		@JvmStatic
+		fun penalizeFrequency(languageId: Int, word: String) {
+			if (word.isEmpty()) return
+			val provider = synchronized(cache) { cache[languageId] } ?: return
+			if (!provider.isLoaded) return
+			val key = word.lowercase()
+			provider.sessionPenalty.merge(key, PENALTY_PER_REJECTION) { a, b ->
+				(a + b).coerceAtMost(0.9f)
+			}
 		}
 
 		/**
