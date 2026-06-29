@@ -70,11 +70,22 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 	// Wrong-result rejection signal — set whenever a glide gesture commits a word. If the user
 	// backspaces within REJECTION_WINDOW_MS, the committed word was almost certainly wrong; we
-	// penalize its glide frequency so similar gestures don't pick it again. Cleared on accept
-	// of any other word, or when the window expires.
+	// penalize its glide frequency so similar gestures don't pick it again. Cleared by any
+	// non-backspace text-producing action (the user moved on instead of rejecting), and by the
+	// backspace itself once the penalty fires.
 	private static final long REJECTION_WINDOW_MS = 3000L;
 	private String lastGlideCommittedWord = "";
 	private long lastGlideCommitTimeMs = 0L;
+	// Captured at commit time so a language switch between commit and backspace doesn't apply
+	// the penalty to whichever language is current at backspace.
+	private int lastGlideCommittedLangId = -1;
+
+	/** Drop the wrong-result rejection arm without firing the penalty. */
+	private void clearGlideRejectionArm() {
+		lastGlideCommittedWord = "";
+		lastGlideCommitTimeMs = 0L;
+		lastGlideCommittedLangId = -1;
+	}
 	abstract protected void autoCompleteOnNumber(double loadingId, @NonNull String[] surroundingChars, @Nullable String lastWord, int number);
 	abstract protected void guessNextWord(@NonNull String[] surroundingText, @Nullable String lastWord);
 	abstract protected boolean shouldAcceptGuessesOnNumber(int key);
@@ -184,6 +195,11 @@ public abstract class TypingHandler extends KeyPadHandler {
 	 * locked prefix). That case is documented as a known limitation of the first integration.
 	 */
 	public boolean onQwertyLetter(@Nullable String letter) {
+		// Any text-producing action after a glide commit means the user moved on — they didn't
+		// reject the prior glide commit, so drop the rejection arm. (onText / onNumber clear it
+		// too; clearing here also covers the case where this method handles the letter directly
+		// via setWordStem without falling through.)
+		clearGlideRejectionArm();
 		if (letter == null || letter.length() != 1) {
 			return onText(letter == null ? "" : letter, false);
 		}
@@ -300,9 +316,11 @@ public abstract class TypingHandler extends KeyPadHandler {
 			textField.setText(Characters.getSpace(mLanguage));
 			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lastWord.toLowerCase());
 			// Arm the rejection-window: if the user backspaces within REJECTION_WINDOW_MS,
-			// this commit was wrong and we'll penalize lastWord's frequency.
+			// this commit was wrong and we'll penalize lastWord's frequency. Capture the langId
+			// so a language switch before backspace doesn't mis-penalize a different language.
 			lastGlideCommittedWord = lastWord.toLowerCase();
 			lastGlideCommitTimeMs = System.currentTimeMillis();
+			lastGlideCommittedLangId = mLanguage.getId();
 		}
 		composingWord.clear();
 	}
@@ -522,14 +540,15 @@ public abstract class TypingHandler extends KeyPadHandler {
 		}
 		// Wrong-result penalty: if the user is backspacing within REJECTION_WINDOW_MS of a
 		// glide-committed word, that commit was almost certainly wrong. Penalize the word's
-		// glide-frequency so subsequent similar gestures don't pick it again. We capture only
-		// once per commit (clear after firing) so multi-backspace word-deletion doesn't
-		// hammer the same word multiple times.
+		// glide-frequency so subsequent similar gestures don't pick it again. Single-fire per
+		// commit (the arm is cleared after firing). Gated on language match so a switch between
+		// commit and backspace doesn't misapply the penalty.
 		if (!lastGlideCommittedWord.isEmpty()
 				&& mLanguage != null
+				&& lastGlideCommittedLangId == mLanguage.getId()
 				&& System.currentTimeMillis() - lastGlideCommitTimeMs < REJECTION_WINDOW_MS) {
 			Tt9WordProvider.penalizeFrequency(mLanguage.getId(), lastGlideCommittedWord);
-			lastGlideCommittedWord = ""; // single-fire: don't penalize again on repeat backspaces
+			clearGlideRejectionArm();
 		}
 
 		// Keep the shared composing buffer in lockstep with ModeWords' digitSequence.
@@ -579,6 +598,9 @@ public abstract class TypingHandler extends KeyPadHandler {
 	 */
 	protected boolean onNumber(int key, boolean hold, int repeat) {
 		suggestionOps.cancelDelayedAccept();
+		// User typed something after a glide commit — they're moving on, not rejecting. Drop
+		// the rejection arm so a later backspace doesn't penalize the prior glide word.
+		clearGlideRejectionArm();
 
 		hold = hold && settings.getHoldToType();
 		String[] surroundingChars = textField.getSurroundingStringForAutoAssistance(settings, mInputMode);
@@ -642,6 +664,8 @@ public abstract class TypingHandler extends KeyPadHandler {
 		}
 
 		suggestionOps.cancelDelayedAccept();
+		// Text input after a glide commit means the user moved on, not rejected. Drop the arm.
+		clearGlideRejectionArm();
 
 		String[] surroundingChars;
 
@@ -875,6 +899,9 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 	protected void scrollSuggestions(boolean backward) {
 		suggestionOps.cancelDelayedAccept();
+		// User is picking a different candidate — the prior glide commit is being replaced, not
+		// rejected. Drop the rejection arm so a later backspace doesn't penalize the wrong word.
+		clearGlideRejectionArm();
 		suggestionOps.scrollTo(backward ? -1 : 1);
 		final String picked = suggestionOps.getCurrent();
 		// Step D: if the shared buffer is all-locked-and-contiguous, the user was picking among

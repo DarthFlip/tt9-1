@@ -51,11 +51,9 @@ public class SoftKeyQwertyInputMode extends SoftKeyLF4 {
 		return isSymbolsPanelVisible() ? "ABC" : "?123";
 	}
 
-	@Override
-	protected int getCornerIcon(int position) {
-		// Hide the globe — language switch lives on the space bar in QWERTY mode.
-		return -1;
-	}
+	// getCornerIcon: inherit the parent's behavior — show the next-language icon at top-right
+	// when multiple languages are enabled. Hold-to-cycle still works on this key, and without
+	// the icon multi-language users had no visual cue that the affordance existed.
 
 	@Override
 	protected boolean handleRelease() {
