@@ -69,15 +69,13 @@
 	<dimen name="numpad_suggestion_height">40sp</dimen>
 	<dimen name="numpad_suggestion_min_width">36sp</dimen>
 
-	<!-- Qwerty on-screen keyboard. 46dp → 58dp → 64dp; the last bump matches Gboard's ~64-68dp
-	     tap targets and noticeably improves accuracy on the Schok F1's small display. Tightened
-	     inter-key vertical margin (1dp instead of 2dp) routes the extra height into actual
-	     touch area rather than empty space. -->
-	<dimen name="qwerty_row_height">64dp</dimen>
-	<!-- Number row is intentionally shorter than the letter rows — Gboard convention. Lets the
-	     keyboard add a useful numeric row without growing too tall on the Schok F1's smallish
-	     display. -->
-	<dimen name="qwerty_number_row_height">36dp</dimen>
-	<dimen name="qwerty_key_text_size">20sp</dimen>
-	<dimen name="qwerty_number_text_size">15sp</dimen>
+	<!-- Qwerty on-screen keyboard. 64dp + a 36dp number row pushed the keyboard off the bottom
+	     of the F1's display (~292dp total) — bottom function row got clipped. Trimmed back to
+	     56dp letter rows + 30dp number row (254dp total) so the whole keyboard fits and the
+	     bottom row stays visible. Still bigger than the original 46dp / 58dp; touch targets
+	     remain Gboard-class. -->
+	<dimen name="qwerty_row_height">56dp</dimen>
+	<dimen name="qwerty_number_row_height">30dp</dimen>
+	<dimen name="qwerty_key_text_size">19sp</dimen>
+	<dimen name="qwerty_number_text_size">13sp</dimen>
 </resources>
