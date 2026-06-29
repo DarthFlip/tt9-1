@@ -46,17 +46,43 @@ public class SoftKeyQwertyLetter extends SoftKeyText {
 	}
 
 	/**
-	 * Long-press emits the uppercase variant of this letter as a literal one-shot — Gboard-style
-	 * capital. Goes through onText so any in-progress composing word commits first and the cap
-	 * lands as standalone text. After the hold, preventRepeat() stops auto-repeat AND suppresses
-	 * the upcoming ACTION_UP handleRelease so we don't double-emit the lowercase letter.
+	 * Long-press emits the "shifted" alternate for this key — for letters that's the uppercase
+	 * variant, for digits it's the standard US QWERTY shift-row symbol (1→!, 2→@, …). Both are
+	 * Gboard conventions. Goes through onText so any in-progress composing word commits first
+	 * and the alternate lands as standalone text. After the hold, preventRepeat() stops auto-
+	 * repeat AND suppresses the upcoming ACTION_UP handleRelease so we don't double-emit the
+	 * base character.
 	 */
 	@Override
 	protected void handleHold() {
 		preventRepeat();
 		if (tt9 == null || keyChar.isEmpty()) return;
-		tt9.onText(keyChar.toUpperCase(), false);
+		final String shifted = shiftedAlternate(keyChar);
+		tt9.onText(shifted, false);
 		vibrate(Vibration.getHoldVibration());
+	}
+
+	/**
+	 * Returns the shifted-row alternate for [keyChar]: letters → uppercase, digits → US QWERTY
+	 * shift symbol, punctuation/symbols → unchanged (no alternate). Single-char keyChar only.
+	 */
+	private static String shiftedAlternate(String keyChar) {
+		if (keyChar == null || keyChar.length() != 1) {
+			return keyChar == null ? "" : keyChar.toUpperCase();
+		}
+		switch (keyChar.charAt(0)) {
+			case '1': return "!";
+			case '2': return "@";
+			case '3': return "#";
+			case '4': return "$";
+			case '5': return "%";
+			case '6': return "^";
+			case '7': return "&";
+			case '8': return "*";
+			case '9': return "(";
+			case '0': return ")";
+			default:  return keyChar.toUpperCase();
+		}
 	}
 
 	@Override

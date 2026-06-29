@@ -215,9 +215,23 @@ public class WordPredictions extends Predictions {
 		}
 
 		if (hits.isEmpty()) return;
-		// Insert just after the top suggestion so a real typo correction is visible at position
-		// 2 in the strip. If the existing list is empty, append.
-		int insertAt = out.isEmpty() ? 0 : 1;
+		// Where to insert the fuzzy hits is the call that turns "shows a fuzzy candidate" into
+		// "Gboard-style inline autocorrect on space." If the typed letters DON'T spell a real
+		// dictionary word (e.g. "teh"), the best fuzzy correction belongs at position 0 so that
+		// pressing space — which commits the top suggestion via acceptIncomplete() — actually
+		// types the corrected word. If the typed letters ARE a real word ("the"), keep the
+		// literal at position 0 and tuck fuzzy variants underneath as alternatives.
+		final boolean stemIsRealWord = Tt9WordProvider.containsWord(langId, prefix);
+		final int insertAt;
+		if (!stemIsRealWord) {
+			// Move the typed-stem entry (if it's at position 0 from suggestStem) down by 1, then
+			// insert fuzzy hits at position 0. Net effect: top fuzzy correction commits on space.
+			insertAt = 0;
+		} else if (out.isEmpty()) {
+			insertAt = 0;
+		} else {
+			insertAt = 1;
+		}
 		out.addAll(insertAt, hits);
 	}
 
