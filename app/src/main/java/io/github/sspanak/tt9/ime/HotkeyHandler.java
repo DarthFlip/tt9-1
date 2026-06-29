@@ -438,12 +438,13 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return false;
 		}
 
-		// QWERTY on-screen layout has NO modes by design — explicitly per user direction.
-		// The strip always shows letter-prefix completions + next-word predictions, and
-		// numbers/symbols live in the ?123 panel. Any attempt to cycle (# from the physical
-		// keypad, gestures, etc.) is a no-op so the user can't accidentally end up in ABC
-		// with no suggestions wondering why the strip went dark.
-		if (settings.isMainLayoutQwerty()) {
+		// QWERTY on-screen layout has NO modes WHILE the keys are visible — explicit user
+		// direction. Strip always shows letter-prefix + next-word predictions; symbols live
+		// in the ?123 panel. # cycle is a no-op only while the user is looking at the
+		// on-screen keys. When the on-screen panel is collapsed (user is typing via the
+		// physical T9 keypad), mode cycling works as normal because that's a legitimate T9
+		// keypad workflow.
+		if (settings.isMainLayoutQwerty() && mainView != null && !mainView.isKeysCollapsed()) {
 			return false;
 		}
 

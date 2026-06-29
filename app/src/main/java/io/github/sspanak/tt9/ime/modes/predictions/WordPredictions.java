@@ -155,10 +155,11 @@ public class WordPredictions extends Predictions {
 
 
 	/** How many fuzzy variants we surface per suggestion update. Higher → noisier strip. */
-	private static final int MAX_FUZZY_CANDIDATES = 3;
-	/** Don't fuzz against very short / very long prefixes — short ones balloon noise, long ones
-	 *  rarely typo (and DL-1 covers less of the error space for them anyway). */
-	private static final int MIN_FUZZY_PREFIX_LEN = 2;
+	private static final int MAX_FUZZY_CANDIDATES = 2;
+	/** Don't fuzz against very short / very long prefixes — short ones balloon noise (the
+	 *  variants of a 2-letter stem are mostly random word-fragments, not useful corrections),
+	 *  long ones rarely typo and DL-1 covers less of the error space for them anyway. */
+	private static final int MIN_FUZZY_PREFIX_LEN = 3;
 	private static final int MAX_FUZZY_PREFIX_LEN = 12;
 
 	/**
@@ -174,6 +175,14 @@ public class WordPredictions extends Predictions {
 		if (language == null || language.getId() <= 0) return;
 		final String prefix = stem.toLowerCase(language.getLocale());
 		final int langId = language.getId();
+		// Skip fuzzy entirely if the typed stem is itself a real dictionary word — the user
+		// isn't typing a typo; surfacing variants like "th" → "thy/thx" or "hi" → "ho/hu" just
+		// clutters the strip with words the user didn't intend. Fuzzy is for typo recovery,
+		// not for "alternatives to a perfectly-good word."
+		if (Tt9WordProvider.containsWord(langId, prefix)) return;
+		// Also skip if we already have several prefix completions — the strip is showing
+		// useful real-prefix matches, no need to add fuzzy mush alongside.
+		if (out.size() >= 3) return;
 		final HashSet<String> seen = new HashSet<>(out.size());
 		for (String w : out) seen.add(w);
 		seen.add(prefix); // don't propose the typed string itself as a fuzzy correction
