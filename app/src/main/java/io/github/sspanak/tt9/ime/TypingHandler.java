@@ -916,14 +916,13 @@ public abstract class TypingHandler extends KeyPadHandler {
 			allowedInputModes.remove((Integer) InputMode.MODE_PREDICTIVE);
 		}
 
-		// QWERTY layout: there's no T9-style mode cycling exposed (the bottom-left key is the
-		// ?123/ABC symbols toggle), and the user expects Gboard-shaped behavior — letter-prefix
-		// suggestions always on. Force Predictive whenever it's an option for the active language.
-		// Falls through to the normal validator if Predictive is genuinely unavailable (e.g. the
-		// language has no dictionary, or the input field disallowed it).
+		// QWERTY on-screen layout is mode-less by design — always Predictive (per user
+		// direction: "there should be no modes in on-screen keyboard"). Symbols/numbers live
+		// in the ?123 panel; the strip always shows letter-prefix completions + next-word
+		// predictions. Force Predictive whenever the input field allows it. Falls through to
+		// the normal validator only if Predictive is genuinely unavailable for this field
+		// (password / numeric / etc.), at which point we have no choice.
 		if (settings.isMainLayoutQwerty()
-				&& settings.getPredictiveMode()
-				&& mLanguage.hasABC()
 				&& allowedInputModes.contains((Integer) InputMode.MODE_PREDICTIVE)) {
 			return InputMode.MODE_PREDICTIVE;
 		}

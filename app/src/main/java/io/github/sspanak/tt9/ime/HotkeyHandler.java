@@ -438,11 +438,14 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return false;
 		}
 
-		// (Removed) QWERTY-layout mode-cycle short-circuit. The physical # key is the standard
-		// way to cycle modes on the kosher-firmware F1 keypad; blocking it on QWERTY broke a
-		// muscle-memory affordance users were relying on. The Phase-3 force-Predictive logic
-		// in determineInputModeId() still picks Predictive as the DEFAULT mode whenever the
-		// QWERTY layout becomes active — but the user can cycle out of it explicitly via #.
+		// QWERTY on-screen layout has NO modes by design — explicitly per user direction.
+		// The strip always shows letter-prefix completions + next-word predictions, and
+		// numbers/symbols live in the ?123 panel. Any attempt to cycle (# from the physical
+		// keypad, gestures, etc.) is a no-op so the user can't accidentally end up in ABC
+		// with no suggestions wondering why the strip went dark.
+		if (settings.isMainLayoutQwerty()) {
+			return false;
+		}
 
 		if (validateOnly) {
 			return true;
