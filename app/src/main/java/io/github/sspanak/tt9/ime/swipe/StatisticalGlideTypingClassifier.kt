@@ -72,8 +72,12 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// a finger landing one key off-target killed the right candidate. Now both sides allow
 		// a wider candidate pool and a SOFT quadratic proximity penalty (below) sorts them by
 		// closeness to the actual key center. Pattern from AnySoftKeyboard's GestureTypingDetector.
-		private const val START_KEY_CANDIDATES: Int = 5
-		private const val END_KEY_CANDIDATES: Int = 5
+		// 5×5=25 (start,end) pairs returned ~1500 candidates into the coarse pass — that's why
+		// latency stayed at 1-2s. Desticourt's analysis (AnySoftKeyboard PR #1870) measured
+		// 99.5% specificity at n=2, meaning 2×2=4 pairs catch the right word essentially every
+		// time while cutting the candidate set 6×. Most latency win available.
+		private const val START_KEY_CANDIDATES: Int = 2
+		private const val END_KEY_CANDIDATES: Int = 2
 		// Proximity penalty factors. AnySoftKeyboard's original (0.000667, 0.000333) are
 		// calibrated for their Gaussian-product confidence which lands in the 10^4 range; with
 		// our direct 1/(1+d) score confidence is in single digits, so the penalty was lost in
