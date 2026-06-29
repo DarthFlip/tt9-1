@@ -742,6 +742,22 @@ public abstract class TypingHandler extends KeyPadHandler {
 			Tt9WordProvider.bumpFrequency(mLanguage.getId(), text.toLowerCase());
 		}
 
+		// Gboard-style next-word predictions: after a word commits (space, punctuation, or text
+		// paste boundary), surface MindReader's bigram-based guesses in the strip immediately so
+		// the user can tap one without typing the first letter. Previously fired only from the
+		// strip-tap acceptance path, leaving the strip empty after space-committed words.
+		final String nextWordContext;
+		if (!lastWord.isEmpty()) {
+			nextWordContext = lastWord;
+		} else if (text != null && !text.isEmpty() && new Text(text).isAlphabetic()) {
+			nextWordContext = text;
+		} else {
+			nextWordContext = "";
+		}
+		if (!nextWordContext.isEmpty()) {
+			guessNextWord(surroundingChars, nextWordContext);
+		}
+
 		return true;
 	}
 
@@ -848,6 +864,18 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 		if (!settings.getPredictiveMode()) {
 			allowedInputModes.remove((Integer) InputMode.MODE_PREDICTIVE);
+		}
+
+		// QWERTY layout: there's no T9-style mode cycling exposed (the bottom-left key is the
+		// ?123/ABC symbols toggle), and the user expects Gboard-shaped behavior — letter-prefix
+		// suggestions always on. Force Predictive whenever it's an option for the active language.
+		// Falls through to the normal validator if Predictive is genuinely unavailable (e.g. the
+		// language has no dictionary, or the input field disallowed it).
+		if (settings.isMainLayoutQwerty()
+				&& settings.getPredictiveMode()
+				&& mLanguage.hasABC()
+				&& allowedInputModes.contains((Integer) InputMode.MODE_PREDICTIVE)) {
+			return InputMode.MODE_PREDICTIVE;
 		}
 
 		return InputModeValidator.validateMode(settings.getInputMode(), allowedInputModes);

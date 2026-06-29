@@ -3,8 +3,10 @@ package io.github.sspanak.tt9.ime.modes.predictions;
 import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 
 import io.github.sspanak.tt9.db.DataStore;
+import io.github.sspanak.tt9.ime.swipe.Tt9WordProvider;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageKind;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
@@ -114,8 +116,79 @@ public class WordPredictions extends Predictions {
 		suggestMissingWords(generatePossibleStemVariations(dbWords), newWords);
 		suggestMissingWords(dbWords.isEmpty() ? generateWordVariations(inputWord) : dbWords, newWords);
 		words = insertPunctuationCompletions(newWords);
+		// Fuzzy typo-correction (Damerau-Levenshtein distance 1): when the locked prefix is a full
+		// unambiguous letter sequence (QWERTY-tap path — stem length matches digit sequence
+		// length), inject up to 3 dictionary words that are one edit away. Insert at position 1 so
+		// they sit just below the top prefix-match — close enough for typos like "teh"→"the" to
+		// stay visible, but never displacing the exact match for correctly-typed words.
+		insertFuzzyCandidates(words);
 
 		onWordsChanged.run();
+	}
+
+
+	/** How many fuzzy variants we surface per suggestion update. Higher → noisier strip. */
+	private static final int MAX_FUZZY_CANDIDATES = 3;
+	/** Don't fuzz against very short / very long prefixes — short ones balloon noise, long ones
+	 *  rarely typo (and DL-1 covers less of the error space for them anyway). */
+	private static final int MIN_FUZZY_PREFIX_LEN = 2;
+	private static final int MAX_FUZZY_PREFIX_LEN = 12;
+
+	/**
+	 * Generate Damerau-Levenshtein-1 variants of [stem] (transposition + deletion + insertion +
+	 * substitution) and inject the ones present in the per-language vocabulary into [out] at
+	 * index 1. Gated to the QWERTY-tap path: only fires when stem is a full unambiguous letter
+	 * sequence (i.e. {@code stem.length() == digitSequence.length()}). No-op when the
+	 * Tt9WordProvider for this language isn't loaded yet.
+	 */
+	private void insertFuzzyCandidates(@NonNull ArrayList<String> out) {
+		if (stem == null || stem.length() != digitSequence.length()) return;
+		if (stem.length() < MIN_FUZZY_PREFIX_LEN || stem.length() > MAX_FUZZY_PREFIX_LEN) return;
+		if (language == null || language.getId() <= 0) return;
+		final String prefix = stem.toLowerCase(language.getLocale());
+		final int langId = language.getId();
+		final HashSet<String> seen = new HashSet<>(out.size());
+		for (String w : out) seen.add(w);
+		seen.add(prefix); // don't propose the typed string itself as a fuzzy correction
+
+		final ArrayList<String> hits = new ArrayList<>(MAX_FUZZY_CANDIDATES);
+		// Transpositions — cheapest variant class, also the highest-precision typo class.
+		for (int i = 0; i < prefix.length() - 1 && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+			char a = prefix.charAt(i), b = prefix.charAt(i + 1);
+			if (a == b) continue;
+			tryAdd(prefix.substring(0, i) + b + a + prefix.substring(i + 2), langId, seen, hits);
+		}
+		// Deletions — remove one character.
+		for (int i = 0; i < prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+			tryAdd(prefix.substring(0, i) + prefix.substring(i + 1), langId, seen, hits);
+		}
+		// Insertions — try each lowercase letter at each position.
+		for (int i = 0; i <= prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+			for (char c = 'a'; c <= 'z' && hits.size() < MAX_FUZZY_CANDIDATES; c++) {
+				tryAdd(prefix.substring(0, i) + c + prefix.substring(i), langId, seen, hits);
+			}
+		}
+		// Substitutions — replace each character with each other letter.
+		for (int i = 0; i < prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+			char orig = prefix.charAt(i);
+			for (char c = 'a'; c <= 'z' && hits.size() < MAX_FUZZY_CANDIDATES; c++) {
+				if (c == orig) continue;
+				tryAdd(prefix.substring(0, i) + c + prefix.substring(i + 1), langId, seen, hits);
+			}
+		}
+
+		if (hits.isEmpty()) return;
+		// Insert just after the top suggestion so a real typo correction is visible at position
+		// 2 in the strip. If the existing list is empty, append.
+		int insertAt = out.isEmpty() ? 0 : 1;
+		out.addAll(insertAt, hits);
+	}
+
+	private void tryAdd(String variant, int langId, HashSet<String> seen, ArrayList<String> hits) {
+		if (seen.contains(variant)) return;
+		if (!Tt9WordProvider.containsWord(langId, variant)) return;
+		seen.add(variant);
+		hits.add(variant);
 	}
 
 

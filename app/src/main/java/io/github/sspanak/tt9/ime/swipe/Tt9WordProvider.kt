@@ -121,6 +121,20 @@ class Tt9WordProvider private constructor() : WordProvider {
 		}
 
 		/**
+		 * O(1) membership test against the loaded vocabulary for [languageId]. Lowercases [word]
+		 * before lookup so callers don't have to. Returns false if the provider hasn't been loaded
+		 * yet (no false positives — silently degrades to "no fuzzy candidates this round"). Used by
+		 * the QWERTY tap path's Damerau-Levenshtein-1 fuzzy candidate generation.
+		 */
+		@JvmStatic
+		fun containsWord(languageId: Int, word: String): Boolean {
+			if (word.isEmpty()) return false
+			val provider = synchronized(cache) { cache[languageId] } ?: return false
+			if (!provider.isLoaded) return false
+			return provider.freqByWord.containsKey(word.lowercase())
+		}
+
+		/**
 		 * Fetches (or reuses a cached) provider for [language]. [onReady] is invoked with a loaded
 		 * provider once the vocabulary is in memory. If the language has no dictionary yet (e.g.
 		 * import still pending) the provider stays empty and [onReady] is still invoked so the

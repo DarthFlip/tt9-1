@@ -687,9 +687,10 @@
 		<item name="android:layout_weight">1</item>
 		<item name="android:layout_marginLeft">2dp</item>
 		<item name="android:layout_marginRight">2dp</item>
-		<item name="android:layout_marginTop">2dp</item>
-		<item name="android:layout_marginBottom">2dp</item>
+		<item name="android:layout_marginTop">1dp</item>
+		<item name="android:layout_marginBottom">1dp</item>
 		<item name="android:textSize">@dimen/qwerty_key_text_size</item>
+		<item name="android:textStyle">bold</item>
 		<item name="android:minWidth">0dp</item>
 		<item name="android:minHeight">0dp</item>
 		<item name="android:paddingLeft">0dp</item>
@@ -697,7 +698,10 @@
 		<item name="android:insetLeft">0dp</item>
 		<item name="android:insetRight">0dp</item>
 		<item name="iconPadding">0dp</item>
-		<!-- MaterialButton's default ripple is too subtle on 58px keys; overlay a visible flash. -->
+		<!-- Rounder corners give the keyboard a more modern Gboard-like look. Keep in sync with
+		     qwerty_key_press_overlay.xml so the pressed-state flash hugs the same shape. -->
+		<item name="cornerRadius">8dp</item>
+		<!-- MaterialButton's default ripple is too subtle on small keys; overlay a visible flash. -->
 		<item name="android:foreground">@drawable/qwerty_key_press_overlay</item>
 	</style>
 
