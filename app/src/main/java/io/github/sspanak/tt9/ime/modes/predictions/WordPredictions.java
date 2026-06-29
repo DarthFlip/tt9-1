@@ -145,6 +145,9 @@ public class WordPredictions extends Predictions {
 		// when there are no prefix matches at all (the case where generateWordVariations used
 		// to fire with T9 textonyms).
 		insertFuzzyCandidates(words);
+		// Smart contractions LAST so they have absolute position-0 priority over fuzzy/prefix
+		// (someone typing "im" or "dont" expects "I'm"/"don't" — not a fuzzy near-miss).
+		applySmartContraction(words);
 
 		onWordsChanged.run();
 	}
@@ -240,6 +243,76 @@ public class WordPredictions extends Predictions {
 		if (!Tt9WordProvider.containsWord(langId, variant)) return;
 		seen.add(variant);
 		hits.add(variant);
+	}
+
+
+	/**
+	 * Tiny apostrophe-free → apostrophe-correct map. When the user types one of these (lowercase
+	 * exact match, QWERTY-locked-prefix mode), we surface the contraction at position 0 so the
+	 * standard space-to-commit gesture types the proper form. Same convention as every major
+	 * mobile IME going back to the BlackBerry days.
+	 *
+	 * Length intentionally short. A bigger list (every "wouldnt/shouldnt/couldnt") doesn't add
+	 * value once a personal-dictionary auto-add layer is in place (Phase 2b) — this catches
+	 * the high-frequency cases so the feature works out of the box.
+	 */
+	private static final java.util.Map<String, String> SMART_CONTRACTIONS = buildContractions();
+
+	private static java.util.Map<String, String> buildContractions() {
+		java.util.HashMap<String, String> m = new java.util.HashMap<>();
+		m.put("im", "I'm");
+		m.put("ive", "I've");
+		m.put("ill", "I'll");
+		m.put("id", "I'd");
+		m.put("dont", "don't");
+		m.put("doesnt", "doesn't");
+		m.put("didnt", "didn't");
+		m.put("isnt", "isn't");
+		m.put("wasnt", "wasn't");
+		m.put("werent", "weren't");
+		m.put("arent", "aren't");
+		m.put("cant", "can't");
+		m.put("couldnt", "couldn't");
+		m.put("wont", "won't");
+		m.put("wouldnt", "wouldn't");
+		m.put("shouldnt", "shouldn't");
+		m.put("hasnt", "hasn't");
+		m.put("havent", "haven't");
+		m.put("hadnt", "hadn't");
+		m.put("youre", "you're");
+		m.put("youve", "you've");
+		m.put("youll", "you'll");
+		m.put("youd", "you'd");
+		m.put("theyre", "they're");
+		m.put("theyve", "they've");
+		m.put("theyll", "they'll");
+		m.put("theyd", "they'd");
+		m.put("weve", "we've");
+		m.put("well", "we'll");
+		m.put("wed", "we'd");
+		m.put("hes", "he's");
+		m.put("shes", "she's");
+		m.put("its", "it's");
+		m.put("thats", "that's");
+		m.put("lets", "let's");
+		m.put("whats", "what's");
+		m.put("whos", "who's");
+		m.put("wheres", "where's");
+		m.put("theres", "there's");
+		return java.util.Collections.unmodifiableMap(m);
+	}
+
+	private void applySmartContraction(@NonNull ArrayList<String> out) {
+		if (stem == null || stem.isEmpty() || stem.length() != digitSequence.length()) return;
+		if (language == null) return;
+		// The map is English-only. Non-English locales will simply never match a key, so we
+		// don't need an explicit language gate — but lowercasing with the correct Locale
+		// matters for Turkish 'i' / 'I' so we still pass language.getLocale().
+		final String typed = stem.toLowerCase(language.getLocale());
+		final String contraction = SMART_CONTRACTIONS.get(typed);
+		if (contraction == null) return;
+		out.remove(contraction);
+		out.add(0, contraction);
 	}
 
 	/**
