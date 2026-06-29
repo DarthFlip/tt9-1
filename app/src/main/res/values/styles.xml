@@ -682,6 +682,12 @@
 		<item name="android:orientation">horizontal</item>
 	</style>
 
+	<!-- Number-row: same horizontal layout as a letter row, but shorter vertically. The numbers
+	     don't need the same touch target as the letters because they're tapped less frequently. -->
+	<style name="TTheme.Qwerty.NumberRow" parent="TTheme.Qwerty.Row">
+		<item name="android:layout_height">@dimen/qwerty_number_row_height</item>
+	</style>
+
 	<style name="TTheme.Qwerty.Key" parent="TTheme.MainSmall.Key">
 		<item name="android:layout_width">0dp</item>
 		<item name="android:layout_weight">1</item>
@@ -706,6 +712,12 @@
 		<item name="cornerRadius">6dp</item>
 		<!-- MaterialButton's default ripple is too subtle on small keys; overlay a visible flash. -->
 		<item name="android:foreground">@drawable/qwerty_key_press_overlay</item>
+	</style>
+
+	<!-- Number row keys: same width / weighting as letter keys, slightly smaller text so the
+	     row reads as a secondary input strip above the main letters (Gboard convention). -->
+	<style name="TTheme.Qwerty.Key.Number" parent="TTheme.Qwerty.Key">
+		<item name="android:textSize">@dimen/qwerty_number_text_size</item>
 	</style>
 
 	<style name="TTheme.Qwerty.Key.Fn" parent="TTheme.Qwerty.Key">

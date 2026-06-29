@@ -74,5 +74,10 @@
 	     inter-key vertical margin (1dp instead of 2dp) routes the extra height into actual
 	     touch area rather than empty space. -->
 	<dimen name="qwerty_row_height">64dp</dimen>
+	<!-- Number row is intentionally shorter than the letter rows — Gboard convention. Lets the
+	     keyboard add a useful numeric row without growing too tall on the Schok F1's smallish
+	     display. -->
+	<dimen name="qwerty_number_row_height">36dp</dimen>
 	<dimen name="qwerty_key_text_size">20sp</dimen>
+	<dimen name="qwerty_number_text_size">15sp</dimen>
 </resources>
