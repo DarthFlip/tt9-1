@@ -256,8 +256,13 @@ abstract public class SuggestionHandler extends TypingHandler {
 	}
 
 
+	/** Last word given to MindReader's guess() — kept on the worker thread for emoji injection
+	 *  in handleGuesses. Reset each call to guessNextWord. */
+	private volatile String lastGuessContextWord = "";
+
 	@Override
 	protected void guessNextWord(@NonNull String[] surroundingText, @Nullable String lastWord) {
+		lastGuessContextWord = lastWord == null ? "" : lastWord;
 		mindReader
 			.setTextCase(mInputMode.getTextCaseRaw())
 			.setLanguage(mLanguage)
@@ -276,6 +281,14 @@ abstract public class SuggestionHandler extends TypingHandler {
 	@MainThread
 	private boolean handleGuesses() {
 		final ArrayList<String> guesses = mindReader.getGuesses();
+		// Predictive emoji: when the word just committed has a relevant emoji, inject it at
+		// position 1 (NEVER position 0 — the top guess gets written into the composing region
+		// via appHacks.setComposingText below, and rendering an emoji there would be weird).
+		// Skip if MindReader returned nothing so we don't render an emoji-only strip.
+		final String emoji = EmojiPredictions.lookup(lastGuessContextWord);
+		if (emoji != null && !guesses.isEmpty() && !guesses.contains(emoji)) {
+			guesses.add(1, emoji);
+		}
 		if (guesses.isEmpty()) {
 			return false;
 		}
