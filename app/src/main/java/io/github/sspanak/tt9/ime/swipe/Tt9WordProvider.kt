@@ -78,6 +78,19 @@ class Tt9WordProvider private constructor() : WordProvider {
 		/** Frequency assigned to a promoted personal-dict word — high enough to surface as a
 		 *  prefix match, below 1.0 so factory top-frequency words still beat it tie-for-tie. */
 		private const val PERSONAL_DICT_FREQUENCY = 0.85f
+
+		// Time-decay constants. Without decay, the very first words the user types become
+		// permanently entrenched even if their typing patterns shift years later. We apply an
+		// exponential half-life decay to sessionBoost (30 days — recent acceptances stay
+		// decisive) and sessionPenalty (60 days — rejections are stickier than acceptances
+		// because users want bad words to stay buried longer). Personal-dict promotions don't
+		// decay; they're treated as "real vocabulary" once promoted. Decay runs at most once
+		// per day on language load.
+		private const val DECAY_INTERVAL_MS = 24L * 60L * 60L * 1000L
+		private const val BOOST_HALF_LIFE_DAYS = 30.0
+		private const val PENALTY_HALF_LIFE_DAYS = 60.0
+		private const val DECAY_FLOOR = 0.01f
+		private const val PREFIX_LAST_DECAY = "lang_%d_last_decay"
 		@Volatile private var appContext: Context? = null
 		private val saveHandler = Handler(Looper.getMainLooper())
 		private val pendingSaves = java.util.concurrent.ConcurrentHashMap<Int, Runnable>()
@@ -240,6 +253,42 @@ class Tt9WordProvider private constructor() : WordProvider {
 				.putString(PREFIX_PERSONAL.format(languageId), personalLines.toString())
 				.putString(PREFIX_PERSONAL_COUNTS.format(languageId), encodeIntMap(provider.personalCounter))
 				.apply()
+		}
+
+		/**
+		 * Apply exponential time-decay to sessionBoost / sessionPenalty if at least
+		 * DECAY_INTERVAL_MS has passed since the last decay run. Cleans up entries that have
+		 * decayed below the floor — keeps map sizes bounded over time. First-call no-ops
+		 * (records "now" so we don't immediately retroactively decay against zero).
+		 */
+		private fun maybeApplyDecay(ctx: Context, languageId: Int, provider: Tt9WordProvider) {
+			val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+			val key = PREFIX_LAST_DECAY.format(languageId)
+			val now = System.currentTimeMillis()
+			val lastDecay = prefs.getLong(key, 0L)
+			if (lastDecay == 0L) {
+				prefs.edit().putLong(key, now).apply()
+				return
+			}
+			val deltaMs = now - lastDecay
+			if (deltaMs < DECAY_INTERVAL_MS) return
+			val daysSince = deltaMs.toDouble() / DECAY_INTERVAL_MS
+			val boostMul = Math.pow(0.5, daysSince / BOOST_HALF_LIFE_DAYS).toFloat()
+			val penaltyMul = Math.pow(0.5, daysSince / PENALTY_HALF_LIFE_DAYS).toFloat()
+			// Decay boost; drop entries that fade below the noise floor.
+			val boostIter = provider.sessionBoost.entries.iterator()
+			while (boostIter.hasNext()) {
+				val e = boostIter.next()
+				val nv = e.value * boostMul
+				if (nv < DECAY_FLOOR) boostIter.remove() else e.setValue(nv)
+			}
+			val penaltyIter = provider.sessionPenalty.entries.iterator()
+			while (penaltyIter.hasNext()) {
+				val e = penaltyIter.next()
+				val nv = e.value * penaltyMul
+				if (nv < DECAY_FLOOR) penaltyIter.remove() else e.setValue(nv)
+			}
+			prefs.edit().putLong(key, now).apply()
 		}
 
 		private fun restoreLearning(ctx: Context, languageId: Int, provider: Tt9WordProvider) {
@@ -422,7 +471,13 @@ class Tt9WordProvider private constructor() : WordProvider {
 				// before we'd re-restore. Safe to call without attachContext (no-op if context
 				// hasn't been wired yet — early bumps will save on the next mutation once
 				// context arrives).
-				appContext?.let { restoreLearning(it, langId, provider) }
+				appContext?.let {
+					restoreLearning(it, langId, provider)
+					// Apply time-decay if at least a day has passed since the last decay run.
+					// Half-life is 30 days for boost / 60 for penalty — old learning fades but
+					// doesn't disappear instantly. Drops entries below the noise floor too.
+					maybeApplyDecay(it, langId, provider)
+				}
 				onReady(provider)
 			}, language)
 		}
