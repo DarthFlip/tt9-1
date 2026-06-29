@@ -105,6 +105,23 @@ public class TraditionalT9 extends PremiumHandler {
 	}
 
 
+	/**
+	 * Snap the IME back to Predictive mode if QWERTY is active and we'd drifted out of
+	 * Predictive (e.g. user collapsed the on-screen keys, pressed # via the physical T9 keypad
+	 * to cycle modes, then re-expanded the on-screen keys). Called from MainLayoutQwerty when
+	 * the keys transition from collapsed → expanded so the strip lights up with completions
+	 * the moment the user starts tapping again, without them having to figure out why
+	 * suggestions went silent. No-op if the input field doesn't permit Predictive (password,
+	 * numeric, etc.) — those genuinely can't have predictions.
+	 */
+	public void resetToPredictiveOnQwerty() {
+		if (!settings.isMainLayoutQwerty()) return;
+		if (allowedInputModes == null || !allowedInputModes.contains(io.github.sspanak.tt9.ime.modes.InputMode.MODE_PREDICTIVE)) return;
+		if (mInputMode == null || mInputMode.getId() == io.github.sspanak.tt9.ime.modes.InputMode.MODE_PREDICTIVE) return;
+		setInputMode(io.github.sspanak.tt9.ime.modes.InputMode.MODE_PREDICTIVE);
+	}
+
+
 	@Override
 	public void onFinishInput() {
 		super.onFinishInput();
