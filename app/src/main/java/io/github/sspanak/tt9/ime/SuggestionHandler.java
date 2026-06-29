@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import io.github.sspanak.tt9.R;
 import io.github.sspanak.tt9.db.words.DictionaryLoader;
 import io.github.sspanak.tt9.ime.helpers.SuggestionOps;
+import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
 import io.github.sspanak.tt9.ui.UI;
 import io.github.sspanak.tt9.util.Text;
@@ -121,14 +122,17 @@ abstract public class SuggestionHandler extends TypingHandler {
 	 */
 	@Override
 	protected void getSuggestions(double loadingId, @Nullable String currentWord, @Nullable Runnable onComplete) {
-		if (InputModeKind.isPredictive(mInputMode) && DictionaryLoader.isRunning()) {
-			mInputMode.reset();
+		// `activeInputMode` reflects whichever pipeline (QWERTY vs T9) most recently fed
+		// input; we read predictions from it so the strip shows the right candidates. Callers
+		// set activeInputMode before invoking us.
+		if (InputModeKind.isPredictive(activeInputMode) && DictionaryLoader.isRunning()) {
+			activeInputMode.reset();
 			UI.toastShortSingle(this, R.string.dictionary_loading_please_wait);
 			if (onComplete != null) {
 				onComplete.run();
 			}
 		} else {
-			mInputMode
+			activeInputMode
 				.setOnSuggestionsUpdated(() -> handleSuggestionsAsync(loadingId, onComplete))
 				.loadSuggestions(currentWord == null ? suggestionOps.getCurrent() : currentWord);
 		}
@@ -151,23 +155,27 @@ abstract public class SuggestionHandler extends TypingHandler {
 
 	@MainThread
 	protected void handleSuggestions(double loadingId, @Nullable Runnable onComplete) {
+		// Read from `activeInputMode` (set by the entry point that triggered the load), not
+		// `mInputMode` directly — so handleSuggestions works for both the QWERTY pipeline
+		// (where activeInputMode = qwertyInputMode) and the T9 pipeline (mInputMode).
+		final InputMode source = activeInputMode;
 		// Second pass, analyze the available suggestions and decide if combining them with the
 		// last key press makes up a compound word like: (it)'s, (I)'ve, l'(oiseau), or it is
 		// just the end of a sentence, like: "word." or "another?"
 		String[] surroundingText = null;
-		if (mInputMode.shouldAcceptPreviousSuggestion(suggestionOps.getCurrent())) {
+		if (source.shouldAcceptPreviousSuggestion(suggestionOps.getCurrent())) {
 			surroundingText = onAcceptPreviousSuggestion();
 		}
 
 		// Step E: drop candidates that violate any non-contiguous lock in the shared composing
 		// buffer (e.g. user typed T9 "234" then tapped QWERTY "h" — we keep words with 'h' at
 		// position 3). No-op when there are no locks past an ambiguous T9 digit.
-		final ArrayList<String> suggestions = filterByComposingWord(mInputMode.getSuggestions());
-		suggestionOps.set(suggestions, mInputMode.getRecommendedSuggestionIdx(), mInputMode.containsGeneratedSuggestions());
+		final ArrayList<String> suggestions = filterByComposingWord(source.getSuggestions());
+		suggestionOps.set(suggestions, source.getRecommendedSuggestionIdx(), source.containsGeneratedSuggestions());
 
 		// either accept the first one automatically (when switching from punctuation to text
 		// or vice versa), or schedule auto-accept in N seconds (in ABC mode)
-		if (suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout())) {
+		if (suggestionOps.scheduleDelayedAccept(source.getAutoAcceptTimeout())) {
 			if (onComplete != null) {
 				onComplete.run();
 			}
@@ -179,14 +187,14 @@ abstract public class SuggestionHandler extends TypingHandler {
 		// (the count of key presses), for a more intuitive experience.
 		String trimmedWord;
 
-		if (InputModeKind.isRecomposing(mInputMode)) {
+		if (InputModeKind.isRecomposing(source)) {
 			// highlight the current letter, when editing a word
-			trimmedWord = mInputMode.getWordStem() + suggestionOps.getCurrent();
-			appHacks.setComposingTextPartsWithHighlightedJoining(trimmedWord, mInputMode.getRecomposingSuffix());
+			trimmedWord = source.getWordStem() + suggestionOps.getCurrent();
+			appHacks.setComposingTextPartsWithHighlightedJoining(trimmedWord, source.getRecomposingSuffix());
 		} else {
 			// or highlight the stem, when filtering
-			trimmedWord = suggestionOps.getCurrent(mLanguage, mInputMode.getSequenceLength());
-			appHacks.setComposingTextWithHighlightedStem(trimmedWord, mInputMode.getWordStem(), mInputMode.isStemFilterFuzzy());
+			trimmedWord = suggestionOps.getCurrent(mLanguage, source.getSequenceLength());
+			appHacks.setComposingTextWithHighlightedStem(trimmedWord, source.getWordStem(), source.isStemFilterFuzzy());
 		}
 
 		// append guesses from the MindReader

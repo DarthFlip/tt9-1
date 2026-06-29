@@ -51,7 +51,6 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 
 	@Override
 	public void setKeysCollapsed(boolean collapsed) {
-		final boolean wasCollapsed = keysExplicitlyCollapsed;
 		keysExplicitlyCollapsed = collapsed;
 		togglePanel(R.id.qwerty_keys_container, !collapsed);
 		// The outer keyboard_container has a pinned height from setKeyboardHeight; the LinearLayout
@@ -62,14 +61,10 @@ class MainLayoutQwerty extends MainLayoutExtraPanel {
 			setKeyboardHeight(computeStatusBarHeight());
 		} else {
 			setKeyboardHeight(getHeight(true));
-			// Collapsed → expanded transition: user is re-engaging the on-screen QWERTY. If they
-			// had cycled out of Predictive via # while collapsed (physical-keypad workflow),
-			// snap back to Predictive now so the strip resumes letter-prefix + next-word
-			// predictions without the user wondering why it went silent.
-			if (wasCollapsed && tt9 != null) {
-				tt9.resetToPredictiveOnQwerty();
-			}
 		}
+		// (Removed) the resetToPredictiveOnQwerty call. The QWERTY pipeline owns its own
+		// `qwertyInputMode` now; no cross-contamination from T9 cycling means no snap-back
+		// needed on transitions.
 	}
 
 

@@ -118,9 +118,10 @@ public class StatusBar {
 
 
 	public void setText(InputMode inputMode) {
-		// QWERTY has no modes by design — the layout is locked to Predictive, # cycling is
-		// disabled, suggestions are always letter-prefix + next-word. So no mode indicator
-		// to show. Strip stays cleanly empty when no suggestions exist, like Gboard.
+		// QWERTY on-screen layout is mode-less by design (per user direction). The QWERTY
+		// pipeline runs on its own qwertyInputMode (always Predictive), so a mode indicator
+		// would just be redundant "[ English ]" noise. Hide it on QWERTY; show on T9 layouts
+		// where the indicator reflects whichever mode the user has cycled via #.
 		if (settings.isMainLayoutQwerty()) {
 			setText("");
 			return;

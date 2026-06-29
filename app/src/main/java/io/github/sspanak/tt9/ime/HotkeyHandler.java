@@ -438,15 +438,10 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return false;
 		}
 
-		// QWERTY on-screen layout has NO modes WHILE the keys are visible — explicit user
-		// direction. Strip always shows letter-prefix + next-word predictions; symbols live
-		// in the ?123 panel. # cycle is a no-op only while the user is looking at the
-		// on-screen keys. When the on-screen panel is collapsed (user is typing via the
-		// physical T9 keypad), mode cycling works as normal because that's a legitimate T9
-		// keypad workflow.
-		if (settings.isMainLayoutQwerty() && mainView != null && !mainView.isKeysCollapsed()) {
-			return false;
-		}
+		// # always cycles `mInputMode` (the T9 keypad's input mode). The on-screen QWERTY
+		// pipeline uses its own `qwertyInputMode` instance, so cycling here has no effect on
+		// QWERTY behavior — the strip stays Predictive while the user is tapping letters.
+		// This is the clean version of the visibility-gated short-circuit we used to need.
 
 		if (validateOnly) {
 			return true;

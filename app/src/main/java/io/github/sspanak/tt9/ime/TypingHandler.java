@@ -43,6 +43,29 @@ public abstract class TypingHandler extends KeyPadHandler {
 	@NonNull protected InputMode mInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
 
 	/**
+	 * Dedicated Predictive InputMode used EXCLUSIVELY by the on-screen QWERTY pipeline
+	 * (`onQwertyLetter`, glide commit, etc.). Lifecycle parallels `mInputMode` but it never
+	 * changes kind — always a Predictive `ModeWords` instance for the active language.
+	 *
+	 * This is the load-bearing piece of the QWERTY/T9 separation: the on-screen keyboard
+	 * operates in its own Predictive context regardless of whatever T9 mode the user has
+	 * cycled `mInputMode` into via the physical # key. The two pipelines no longer overwrite
+	 * each other's state. Allocated in `setInputField` and refreshed on language change.
+	 *
+	 * Stays at MODE_PASSTHROUGH until the language is known so it doesn't NPE on early reads.
+	 */
+	@NonNull protected InputMode qwertyInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
+
+	/**
+	 * The InputMode that owns the current suggestion query — set by whichever entry point
+	 * most recently triggered `getSuggestions`. `handleSuggestions` and friends read from this
+	 * (instead of `mInputMode` directly) so that the strip always reflects the pipeline that
+	 * fed it. Set to `qwertyInputMode` for QWERTY-tap / glide paths; `mInputMode` for T9
+	 * keypad and other non-QWERTY paths.
+	 */
+	@NonNull protected InputMode activeInputMode = mInputMode;
+
+	/**
 	 * Position-indexed buffer shared between the physical 12-key and the on-screen QWERTY.
 	 * Populated only while the QWERTY layout is active. Lock state informs the stem passed to
 	 * ModeWords so the two input paths agree on a single in-progress word.
@@ -144,6 +167,21 @@ public abstract class TypingHandler extends KeyPadHandler {
 		settings.setDefaultCharOrder(mLanguage, false);
 		resetKeyRepeat();
 		mInputMode = determineInputMode();
+		// Allocate a separate Predictive InputMode for the on-screen QWERTY pipeline. This
+		// stays Predictive regardless of what `mInputMode` is or what the user cycles into
+		// via #. If the input field doesn't support Predictive at all (password, dial pad,
+		// etc.), reuse `mInputMode` — the QWERTY path is gated by the layout anyway and
+		// won't fire on those field types.
+		if (allowedInputModes.contains(InputMode.MODE_PREDICTIVE)) {
+			qwertyInputMode = InputMode.getInstance(settings, mLanguage, inputType, textField, InputMode.MODE_PREDICTIVE);
+		} else {
+			qwertyInputMode = mInputMode;
+		}
+		// `activeInputMode` defaults to whichever mode the user is initially using. If the
+		// active layout is QWERTY (on-screen visible), that's the QWERTY pipeline; otherwise
+		// the T9 pipeline. Updated dynamically by entry points (onQwertyLetter / onNumber)
+		// as the user switches between sources.
+		activeInputMode = settings.isMainLayoutQwerty() ? qwertyInputMode : mInputMode;
 		determineTextCase();
 		suggestionOps.set(null);
 
@@ -218,19 +256,22 @@ public abstract class TypingHandler extends KeyPadHandler {
 		if (!Character.isLetter(c)) {
 			return onText(letter, false);
 		}
-		if (!InputModeKind.isPredictive(mInputMode)) {
-			return onText(letter, false);
-		}
+		// The on-screen QWERTY pipeline operates in its own Predictive context via
+		// `qwertyInputMode`, decoupled from whatever `mInputMode` is doing for the T9
+		// physical keypad. This is the load-bearing separation: pressing # on T9 cycles
+		// mInputMode but never affects qwertyInputMode. No bail-out to `onText` — QWERTY
+		// taps always go through Predictive completion.
+		activeInputMode = qwertyInputMode;
 
 		suggestionOps.cancelDelayedAccept();
 		final int sizeBefore = composingWord.size();
 		composingWord.appendLockedLetter(c);
 
 		final String newStem = composingWord.getLockedPrefix();
-		// Case 1: the new letter extends the leading locked prefix. Feed it to ModeWords as a
-		// stem update — the existing T9 dictionary filter narrows on it.
+		// Case 1: the new letter extends the leading locked prefix. Feed it to qwertyInputMode
+		// as a stem update — its dictionary filter narrows on it.
 		if (!newStem.isEmpty() && newStem.length() == sizeBefore + 1) {
-			if (mInputMode.setWordStem(newStem, true)) {
+			if (qwertyInputMode.setWordStem(newStem, true)) {
 				// Show the typed prefix immediately so the keypress feels instant — without this,
 				// the letter doesn't appear until the async dictionary query completes (visible lag
 				// on slow disks / large vocabularies). The async suggestion handler overwrites this
@@ -248,8 +289,8 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// Case 2: there are ambiguous T9 digits between the leading lock-run and this new letter.
 		// We can't feed setWordStem (it's prefix-only and would clobber digitSequence). Instead:
 		// look up the T9 digit for this letter, append it to digitSequence via a synthetic
-		// onNumber call, and rely on Step E's post-filter (ComposingWord.matches) to drop
-		// candidates that violate the position lock.
+		// onNumber call on qwertyInputMode, and rely on Step E's post-filter
+		// (ComposingWord.matches) to drop candidates that violate the position lock.
 		final int digit = digitFor(c);
 		if (digit < 0) {
 			composingWord.removeLast();
@@ -258,8 +299,8 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 		suppressComposingDigitAppend = true;
 		try {
-			final String[] surrounding = textField.getSurroundingStringForAutoAssistance(settings, mInputMode);
-			if (!mInputMode.onNumber(digit, false, 0, surrounding)) {
+			final String[] surrounding = textField.getSurroundingStringForAutoAssistance(settings, qwertyInputMode);
+			if (!qwertyInputMode.onNumber(digit, false, 0, surrounding)) {
 				composingWord.removeLast();
 				return onText(letter, false);
 			}
@@ -322,7 +363,9 @@ public abstract class TypingHandler extends KeyPadHandler {
 		if (suggestionOps.isEmpty()) return;
 		final String lastWord = suggestionOps.acceptIncomplete();
 		if (lastWord == null || lastWord.isEmpty()) return;
-		mInputMode.onAcceptSuggestion(lastWord);
+		// Glide commit is a QWERTY-layer event — accept through the QWERTY pipeline's mode.
+		activeInputMode = qwertyInputMode;
+		qwertyInputMode.onAcceptSuggestion(lastWord);
 		if (mLanguage != null && new Text(lastWord).isAlphabetic()) {
 			textField.setText(Characters.getSpace(mLanguage));
 			final String lowerLast = lastWord.toLowerCase();
@@ -633,6 +676,9 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// User typed something after a glide commit — they're moving on, not rejecting. Drop
 		// the rejection arm so a later backspace doesn't penalize the prior glide word.
 		clearGlideRejectionArm();
+		// T9 physical-keypad input: predictions come from `mInputMode`, the cycleable T9 mode.
+		// onQwertyLetter is the only path that flips this to `qwertyInputMode`.
+		activeInputMode = mInputMode;
 
 		hold = hold && settings.getHoldToType();
 		String[] surroundingChars = textField.getSurroundingStringForAutoAssistance(settings, mInputMode);
@@ -916,17 +962,11 @@ public abstract class TypingHandler extends KeyPadHandler {
 			allowedInputModes.remove((Integer) InputMode.MODE_PREDICTIVE);
 		}
 
-		// QWERTY on-screen layout is mode-less by design — always Predictive (per user
-		// direction: "there should be no modes in on-screen keyboard"). Symbols/numbers live
-		// in the ?123 panel; the strip always shows letter-prefix completions + next-word
-		// predictions. Force Predictive whenever the input field allows it. Falls through to
-		// the normal validator only if Predictive is genuinely unavailable for this field
-		// (password / numeric / etc.), at which point we have no choice.
-		if (settings.isMainLayoutQwerty()
-				&& allowedInputModes.contains((Integer) InputMode.MODE_PREDICTIVE)) {
-			return InputMode.MODE_PREDICTIVE;
-		}
-
+		// (Removed force-Predictive-on-QWERTY logic.) The on-screen QWERTY pipeline now has
+		// its own `qwertyInputMode` instance that's always Predictive, so `mInputMode` is free
+		// to be whatever the user's last-cycled T9 mode was. The QWERTY tap path no longer
+		// reads `mInputMode`; cycling # has no effect on QWERTY behavior. This is the clean
+		// version of what the force-Predictive workaround was trying to achieve.
 		return InputModeValidator.validateMode(settings.getInputMode(), allowedInputModes);
 	}
 
