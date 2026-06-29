@@ -686,6 +686,21 @@ public abstract class TypingHandler extends KeyPadHandler {
 	}
 
 
+	/**
+	 * Move the text-field cursor [delta] positions (negative = left). Used by the long-press-
+	 * space cursor-drag gesture in SoftKeyQwertySpace. Commits any pending composing word
+	 * first so the cursor lands on stable text, not on an underlined preview that would
+	 * disappear as soon as the user lifts off.
+	 */
+	public void moveCursor(int delta) {
+		if (delta == 0) return;
+		// Settle the composing region so the cursor drag operates on committed text.
+		suggestionOps.acceptIncomplete();
+		composingWord.clear();
+		textSelection.moveCursor(delta);
+	}
+
+
 	public boolean onText(String text, boolean validateOnly) {
 		if (mInputMode.shouldIgnoreText(text)) {
 			return false;
