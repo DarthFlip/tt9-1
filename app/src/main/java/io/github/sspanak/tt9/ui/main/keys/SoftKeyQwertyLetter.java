@@ -46,17 +46,28 @@ public class SoftKeyQwertyLetter extends SoftKeyText {
 	}
 
 	/**
-	 * Long-press emits the "shifted" alternate for this key — for letters that's the uppercase
-	 * variant, for digits it's the standard US QWERTY shift-row symbol (1→!, 2→@, …). Both are
-	 * Gboard conventions. Goes through onText so any in-progress composing word commits first
-	 * and the alternate lands as standalone text. After the hold, preventRepeat() stops auto-
-	 * repeat AND suppresses the upcoming ACTION_UP handleRelease so we don't double-emit the
-	 * base character.
+	 * Long-press emits the "shifted" alternate for this key:
+	 *   - letters → uppercase variant (Gboard capital-on-hold)
+	 *   - digits → US QWERTY shift-row symbol (1→!, 2→@, …)
+	 *   - comma  → toggles voice input (Gboard convention; same affordance as Gboard's
+	 *               long-press-comma)
+	 *   - other  → no alternate (the key emits nothing on hold)
+	 * Goes through onText for character emission so any in-progress composing word commits
+	 * first. preventRepeat() stops auto-repeat AND suppresses the upcoming ACTION_UP
+	 * handleRelease so we don't double-emit the base character.
 	 */
 	@Override
 	protected void handleHold() {
 		preventRepeat();
 		if (tt9 == null || keyChar.isEmpty()) return;
+		// Comma → voice input. Convention from Gboard. We hand off to the existing voice
+		// infrastructure in TraditionalT9 (via VoiceHandler); no fallback emit because
+		// firing voice and ALSO typing a comma would be surprising.
+		if (",".equals(keyChar)) {
+			tt9.toggleVoiceInput();
+			vibrate(Vibration.getHoldVibration());
+			return;
+		}
 		final String shifted = shiftedAlternate(keyChar);
 		tt9.onText(shifted, false);
 		vibrate(Vibration.getHoldVibration());
