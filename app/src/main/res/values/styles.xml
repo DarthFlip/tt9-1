@@ -690,7 +690,9 @@
 		<item name="android:layout_marginTop">1dp</item>
 		<item name="android:layout_marginBottom">1dp</item>
 		<item name="android:textSize">@dimen/qwerty_key_text_size</item>
-		<item name="android:textStyle">bold</item>
+		<!-- Normal weight matches Gboard's lighter letter labels (we tried bold and it read as
+		     too dense / un-Gboard). Subtle key shape + regular text = closer match. -->
+		<item name="android:textStyle">normal</item>
 		<item name="android:minWidth">0dp</item>
 		<item name="android:minHeight">0dp</item>
 		<item name="android:paddingLeft">0dp</item>
@@ -698,9 +700,10 @@
 		<item name="android:insetLeft">0dp</item>
 		<item name="android:insetRight">0dp</item>
 		<item name="iconPadding">0dp</item>
-		<!-- Rounder corners give the keyboard a more modern Gboard-like look. Keep in sync with
-		     qwerty_key_press_overlay.xml so the pressed-state flash hugs the same shape. -->
-		<item name="cornerRadius">8dp</item>
+		<!-- 6dp corners match Gboard's subtle key rounding. 8dp read as too soft / pillowy. Keep
+		     in sync with qwerty_key_press_overlay.xml so the pressed-state flash hugs the same
+		     shape. -->
+		<item name="cornerRadius">6dp</item>
 		<!-- MaterialButton's default ripple is too subtle on small keys; overlay a visible flash. -->
 		<item name="android:foreground">@drawable/qwerty_key_press_overlay</item>
 	</style>

@@ -131,12 +131,16 @@ class Tt9WordProvider private constructor() : WordProvider {
 		}
 
 		/**
-		 * Returns up to [maxResults] vocabulary words starting with [prefix] (lowercase), in the
-		 * vocabulary's stored order. For languages whose vocab exceeds [VOCAB_CAP] (≥40k), that
-		 * order is descending frequency — so the most common completions surface first and the
-		 * loop typically breaks early. Empty list if the provider for [languageId] isn't loaded
-		 * yet. Used by WordPredictions to fall back to letter-prefix matching when the SQLite
-		 * digit-sequence query returns insufficient hits on short QWERTY-typed prefixes.
+		 * Returns up to [maxResults] vocabulary words starting with [prefix] (lowercase), sorted
+		 * by descending frequency. DataStore.getAllWords returns words in dictionary insertion
+		 * order (typically by digit-sequence id then by frequency-within-sequence), so a naive
+		 * "first N matches" scan would surface arbitrary low-frequency words like "thy / thx"
+		 * before the obvious completions "the / this / they / them". Doing a full O(n) scan +
+		 * sort over the cached vocabulary is sub-millisecond at 50k words and ensures the most
+		 * common completions surface first.
+		 *
+		 * Empty list if the provider for [languageId] isn't loaded yet. Used by WordPredictions
+		 * to supplement the SQLite digit-sequence query on QWERTY-typed prefixes.
 		 */
 		@JvmStatic
 		fun getWordsByPrefix(languageId: Int, prefix: String, maxResults: Int): java.util.ArrayList<String> {
@@ -145,12 +149,16 @@ class Tt9WordProvider private constructor() : WordProvider {
 			val provider = synchronized(cache) { cache[languageId] } ?: return out
 			if (!provider.isLoaded) return out
 			val lowered = prefix.lowercase()
+
+			val matches = java.util.ArrayList<Pair<String, Float>>()
 			for (w in provider.words) {
-				if (out.size >= maxResults) break
 				if (w.length > lowered.length && w.startsWith(lowered)) {
-					out.add(w)
+					matches.add(w to (provider.freqByWord[w] ?: 0f))
 				}
 			}
+			matches.sortByDescending { it.second }
+			val limit = minOf(maxResults, matches.size)
+			for (i in 0 until limit) out.add(matches[i].first)
 			return out
 		}
 
