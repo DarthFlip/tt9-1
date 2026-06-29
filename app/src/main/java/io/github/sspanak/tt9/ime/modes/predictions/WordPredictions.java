@@ -156,10 +156,13 @@ public class WordPredictions extends Predictions {
 
 	/** How many fuzzy variants we surface per suggestion update. Higher → noisier strip. */
 	private static final int MAX_FUZZY_CANDIDATES = 2;
-	/** Don't fuzz against very short / very long prefixes — short ones balloon noise (the
-	 *  variants of a 2-letter stem are mostly random word-fragments, not useful corrections),
-	 *  long ones rarely typo and DL-1 covers less of the error space for them anyway. */
-	private static final int MIN_FUZZY_PREFIX_LEN = 3;
+	/** Stems shorter than this skip insertion/deletion/transposition variants (they balloon
+	 *  noise — "h", "t", "hth", "thg" instead of useful corrections). They still get
+	 *  spatial-substitution variants ("tg" → "th" via 'g'→'h'), which are precise enough to
+	 *  be useful on a 2-letter typo. */
+	private static final int MIN_FUZZY_INSERT_DELETE_LEN = 3;
+	/** Below this length we don't fuzz at all (single-letter stems are too ambiguous). */
+	private static final int MIN_FUZZY_PREFIX_LEN = 2;
 	private static final int MAX_FUZZY_PREFIX_LEN = 12;
 
 	/**
@@ -188,20 +191,26 @@ public class WordPredictions extends Predictions {
 		seen.add(prefix); // don't propose the typed string itself as a fuzzy correction
 
 		final ArrayList<String> hits = new ArrayList<>(MAX_FUZZY_CANDIDATES);
-		// Transpositions — cheapest variant class, also the highest-precision typo class.
-		for (int i = 0; i < prefix.length() - 1 && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
-			char a = prefix.charAt(i), b = prefix.charAt(i + 1);
-			if (a == b) continue;
-			tryAdd(prefix.substring(0, i) + b + a + prefix.substring(i + 2), langId, seen, hits);
-		}
-		// Deletions — remove one character.
-		for (int i = 0; i < prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
-			tryAdd(prefix.substring(0, i) + prefix.substring(i + 1), langId, seen, hits);
-		}
-		// Insertions — try each lowercase letter at each position.
-		for (int i = 0; i <= prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
-			for (char c = 'a'; c <= 'z' && hits.size() < MAX_FUZZY_CANDIDATES; c++) {
-				tryAdd(prefix.substring(0, i) + c + prefix.substring(i), langId, seen, hits);
+		// Insert/delete/transpose only on longer stems — on 2-letter stems they produce too much
+		// noise ("h", "t", "hth", "thg" instead of useful corrections). Spatial substitution
+		// (below) still runs on length-2 to catch "tg" → "th" etc.
+		final boolean allowInsertDelete = prefix.length() >= MIN_FUZZY_INSERT_DELETE_LEN;
+		if (allowInsertDelete) {
+			// Transpositions — cheapest variant class, also the highest-precision typo class.
+			for (int i = 0; i < prefix.length() - 1 && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+				char a = prefix.charAt(i), b = prefix.charAt(i + 1);
+				if (a == b) continue;
+				tryAdd(prefix.substring(0, i) + b + a + prefix.substring(i + 2), langId, seen, hits);
+			}
+			// Deletions — remove one character.
+			for (int i = 0; i < prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+				tryAdd(prefix.substring(0, i) + prefix.substring(i + 1), langId, seen, hits);
+			}
+			// Insertions — try each lowercase letter at each position.
+			for (int i = 0; i <= prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
+				for (char c = 'a'; c <= 'z' && hits.size() < MAX_FUZZY_CANDIDATES; c++) {
+					tryAdd(prefix.substring(0, i) + c + prefix.substring(i), langId, seen, hits);
+				}
 			}
 		}
 		// Substitutions — replace each character with another. Prioritize keyboard-adjacent
