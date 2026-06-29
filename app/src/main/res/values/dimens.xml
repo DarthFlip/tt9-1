@@ -9,10 +9,14 @@
 	<dimen name="key_text_size">21dp</dimen>
 
 	<!-- Status Bar -->
-	<dimen name="status_bar_text_size">16sp</dimen>
+	<dimen name="status_bar_text_size">17sp</dimen>
 
 	<!-- Main Small -->
-	<dimen name="main_small_suggestion_spacing_horizontal">6sp</dimen>
+	<!-- Suggestion strip item spacing — bumped 6sp → 14sp for Gboard-style breathing room.
+	     The old 6sp packed suggestions so tightly they read as one continuous string with
+	     pipe dividers; 14sp lets each candidate stand on its own and gives a comfortable
+	     tap target between items. -->
+	<dimen name="main_small_suggestion_spacing_horizontal">14sp</dimen>
 
 	<dimen name="main_small_main_key_wrapper_height">46dp</dimen> <!-- key height + margin -->
 	<dimen name="main_small_main_key_wrapper_extra_height_for_messenger">50dp</dimen> <!-- empirically found the correct amount -->
