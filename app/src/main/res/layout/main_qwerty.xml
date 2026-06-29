@@ -21,6 +21,13 @@
 			android:layout_height="wrap_content"
 			android:orientation="vertical">
 
+			<!-- LETTER PANEL: rows 1-4. Hidden when symbols mode active. -->
+			<LinearLayout
+				android:id="@+id/qwerty_letter_panel"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:orientation="vertical">
+
 			<!-- Row 1: q w e r t y u i o p -->
 			<LinearLayout style="@style/TTheme.Qwerty.Row">
 				<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="q" />
@@ -124,6 +131,12 @@
 					android:drawableLeft="@drawable/ic_enter"
 					android:drawablePadding="0dp" />
 			</LinearLayout>
+
+			</LinearLayout> <!-- end qwerty_letter_panel -->
+
+			<!-- SYMBOLS PANEL: rows 1-4 with numbers + symbols + same bottom UX.
+			     Hidden by default; SoftKeyQwertyInputMode.handleRelease() toggles. -->
+			<include layout="@layout/panel_qwerty_symbols" />
 
 		</io.github.sspanak.tt9.ime.swipe.SwipeableKeyboardContainer>
 

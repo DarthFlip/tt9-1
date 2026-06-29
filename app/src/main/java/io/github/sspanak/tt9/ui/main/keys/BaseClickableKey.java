@@ -101,7 +101,7 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 				final float dx = event.getX() - downX;
 				final float dy = event.getY() - downY;
 				final float distSq = dx * dx + dy * dy;
-				final boolean suppressed = distSq > tapSlopPx * tapSlopPx;
+				final boolean suppressed = isTapSlopActive() && distSq > tapSlopPx * tapSlopPx;
 				Logger.d(LOG_TAG, "tap-up dx²+dy²=" + distSq + " slop²=" + (tapSlopPx * tapSlopPx) + " suppressed=" + suppressed);
 				if (suppressed) {
 					return false;
@@ -197,6 +197,14 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 	 * letter so per-key learning doesn't apply).
 	 */
 	protected void recordTouchOffset(float downXLocal, float downYLocal) {}
+
+	/**
+	 * Whether the tap-slop guard applies to this key. The guard exists to prevent QWERTY
+	 * letter keys from emitting every time a glide gesture crosses them — for a key that
+	 * isn't part of any gesture (e.g. the symbols-toggle), finger drift during a deliberate
+	 * tap shouldn't suppress the release. Subclasses that are tap-only return false.
+	 */
+	protected boolean isTapSlopActive() { return true; }
 
 
 	public boolean isHoldEnabled() {
