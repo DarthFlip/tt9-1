@@ -828,6 +828,16 @@ public abstract class TypingHandler extends KeyPadHandler {
 			mLanguage = appLanguage;
 		}
 
+		// Warm Tt9WordProvider's vocabulary HashMap as soon as we know the language. Fuzzy
+		// typo-correction in WordPredictions reads it via Tt9WordProvider.containsWord; the
+		// alternative was waiting for the QWERTY swipe container to bindLanguage, which only
+		// fires after the keyboard view inflates — by then the user has already typed the
+		// first letters and seen empty/T9-shaped suggestions. Triggering here gets the load
+		// running while the IME is still wiring up.
+		if (mLanguage != null && mLanguage.getId() > 0) {
+			Tt9WordProvider.preload(mLanguage);
+		}
+
 		return oldLang != mLanguage.getId();
 	}
 

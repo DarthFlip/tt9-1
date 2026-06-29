@@ -121,6 +121,16 @@ class Tt9WordProvider private constructor() : WordProvider {
 		}
 
 		/**
+		 * Java-friendly fire-and-forget preload: triggers the async vocabulary load for [language]
+		 * if not already cached. No callback — useful from Java sites that just want the cache to
+		 * be warm by the time it's queried later (e.g. fuzzy lookups in WordPredictions).
+		 */
+		@JvmStatic
+		fun preload(language: Language) {
+			load(language) { /* no-op; the cache itself is the side effect */ }
+		}
+
+		/**
 		 * O(1) membership test against the loaded vocabulary for [languageId]. Lowercases [word]
 		 * before lookup so callers don't have to. Returns false if the provider hasn't been loaded
 		 * yet (no false positives — silently degrades to "no fuzzy candidates this round"). Used by

@@ -114,13 +114,24 @@ public class WordPredictions extends Predictions {
 		dbWords = localeWordsSorter.shouldSort(stem, digitSequence) ? localeWordsSorter.sort(dbWords) : dbWords;
 		dbWords = rearrangeByPairFrequency(dbWords);
 		suggestMissingWords(generatePossibleStemVariations(dbWords), newWords);
-		suggestMissingWords(dbWords.isEmpty() ? generateWordVariations(inputWord) : dbWords, newWords);
+		// QWERTY-tap path (stem length matches digit sequence length: the user typed exact
+		// letters, no ambiguity): when there are no DB matches, DO NOT fall back to
+		// generateWordVariations — that produces "stem + every letter on the last T9 digit"
+		// (e.g. "tgw" → "tgw, tgx, tgy, tgz"), which is the T9-textonym behavior we explicitly
+		// don't want on QWERTY. The fuzzy injection below (Damerau-Levenshtein-1) is the
+		// QWERTY-appropriate fallback. T9 path still gets the full variations.
+		final boolean qwertyExactMode = !stem.isEmpty() && stem.length() == digitSequence.length();
+		if (!dbWords.isEmpty()) {
+			suggestMissingWords(dbWords, newWords);
+		} else if (!qwertyExactMode) {
+			suggestMissingWords(generateWordVariations(inputWord), newWords);
+		}
 		words = insertPunctuationCompletions(newWords);
-		// Fuzzy typo-correction (Damerau-Levenshtein distance 1): when the locked prefix is a full
-		// unambiguous letter sequence (QWERTY-tap path — stem length matches digit sequence
-		// length), inject up to 3 dictionary words that are one edit away. Insert at position 1 so
-		// they sit just below the top prefix-match — close enough for typos like "teh"→"the" to
-		// stay visible, but never displacing the exact match for correctly-typed words.
+		// Fuzzy typo-correction (Damerau-Levenshtein distance 1): inject up to 3 dictionary
+		// words that are one edit away from the typed prefix. Insert at position 1 so they sit
+		// just below the top prefix-match for normal typing, and act as the primary fallback
+		// when there are no prefix matches at all (the case where generateWordVariations used
+		// to fire with T9 textonyms).
 		insertFuzzyCandidates(words);
 
 		onWordsChanged.run();
