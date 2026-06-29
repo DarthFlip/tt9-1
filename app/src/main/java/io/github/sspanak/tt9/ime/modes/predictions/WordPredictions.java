@@ -191,9 +191,23 @@ public class WordPredictions extends Predictions {
 				tryAdd(prefix.substring(0, i) + c + prefix.substring(i), langId, seen, hits);
 			}
 		}
-		// Substitutions — replace each character with each other letter.
+		// Substitutions — replace each character with another. Prioritize keyboard-adjacent
+		// keys first ("tge" → swap 'g' with its neighbors 'f','h','v','y','t','b' before
+		// the rest of the alphabet) because adjacent-key typos are by far the most common
+		// substitution error on a QWERTY layout. With MAX_FUZZY_CANDIDATES=3 the spatial
+		// ordering decides WHICH 3 hits we keep, not whether we look at more candidates —
+		// so this is purely a precision win on a fixed budget.
 		for (int i = 0; i < prefix.length() && hits.size() < MAX_FUZZY_CANDIDATES; i++) {
 			char orig = prefix.charAt(i);
+			final char[] neighbors = QWERTY_NEIGHBORS.get(orig);
+			if (neighbors != null) {
+				for (char c : neighbors) {
+					if (hits.size() >= MAX_FUZZY_CANDIDATES) break;
+					tryAdd(prefix.substring(0, i) + c + prefix.substring(i + 1), langId, seen, hits);
+				}
+			}
+			// Then fall through alphabetically for completeness — catches the non-spatial
+			// cases (homophones, intentional spelling variants).
 			for (char c = 'a'; c <= 'z' && hits.size() < MAX_FUZZY_CANDIDATES; c++) {
 				if (c == orig) continue;
 				tryAdd(prefix.substring(0, i) + c + prefix.substring(i + 1), langId, seen, hits);
@@ -212,6 +226,50 @@ public class WordPredictions extends Predictions {
 		if (!Tt9WordProvider.containsWord(langId, variant)) return;
 		seen.add(variant);
 		hits.add(variant);
+	}
+
+	/**
+	 * Standard QWERTY adjacency map (US layout). Only lowercase a-z. Used by the substitution
+	 * pass of insertFuzzyCandidates — when the user types a wrong letter, the wrong letter is
+	 * overwhelmingly likely to be one physically adjacent to the intended one (~80% of typos
+	 * per Damerau's classic 1964 analysis). Trying neighbors first within a fixed candidate
+	 * budget surfaces the right correction much more often than alphabetical iteration.
+	 *
+	 * Non-US layouts (AZERTY, QWERTZ, Dvorak) aren't covered here — the spatial model
+	 * degrades gracefully to alphabetical fallback. Future: derive this from the live
+	 * SwipeKey geometry per language so multi-layout users get the right model.
+	 */
+	private static final java.util.Map<Character, char[]> QWERTY_NEIGHBORS = buildQwertyNeighbors();
+
+	private static java.util.Map<Character, char[]> buildQwertyNeighbors() {
+		java.util.HashMap<Character, char[]> m = new java.util.HashMap<>();
+		m.put('q', new char[]{'w', 'a'});
+		m.put('w', new char[]{'q', 'e', 'a', 's'});
+		m.put('e', new char[]{'w', 'r', 's', 'd'});
+		m.put('r', new char[]{'e', 't', 'd', 'f'});
+		m.put('t', new char[]{'r', 'y', 'f', 'g'});
+		m.put('y', new char[]{'t', 'u', 'g', 'h'});
+		m.put('u', new char[]{'y', 'i', 'h', 'j'});
+		m.put('i', new char[]{'u', 'o', 'j', 'k'});
+		m.put('o', new char[]{'i', 'p', 'k', 'l'});
+		m.put('p', new char[]{'o', 'l'});
+		m.put('a', new char[]{'q', 'w', 's', 'z'});
+		m.put('s', new char[]{'a', 'w', 'd', 'z', 'x', 'e'});
+		m.put('d', new char[]{'s', 'e', 'f', 'c', 'x', 'r'});
+		m.put('f', new char[]{'d', 'r', 'g', 'v', 'c', 't'});
+		m.put('g', new char[]{'f', 't', 'h', 'b', 'v', 'y'});
+		m.put('h', new char[]{'g', 'y', 'j', 'n', 'b', 'u'});
+		m.put('j', new char[]{'h', 'u', 'k', 'm', 'n', 'i'});
+		m.put('k', new char[]{'j', 'i', 'l', 'm', 'o'});
+		m.put('l', new char[]{'k', 'o', 'p'});
+		m.put('z', new char[]{'a', 's', 'x'});
+		m.put('x', new char[]{'z', 's', 'd', 'c'});
+		m.put('c', new char[]{'x', 'd', 'f', 'v'});
+		m.put('v', new char[]{'c', 'f', 'g', 'b'});
+		m.put('b', new char[]{'v', 'g', 'h', 'n'});
+		m.put('n', new char[]{'b', 'h', 'j', 'm'});
+		m.put('m', new char[]{'n', 'j', 'k'});
+		return java.util.Collections.unmodifiableMap(m);
 	}
 
 
