@@ -154,19 +154,34 @@ android {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'false'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
-			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 		lite {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
-			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 		premium {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'true'
-			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'true'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 	}
 
@@ -217,9 +232,9 @@ dependencies {
 	premiumImplementation 'com.android.billingclient:billing:8.3.0'
 
 	// Neural swipe decoder runtime — ONNX Runtime ships native libs for armeabi-v7a (32-bit
-	// ARM), which is what the Schok F1 actually is. ExecuTorch only ships arm64-v8a so we
-	// can't use FUTO weights on this hardware. Pinned to 1.20.0 to match the CleverKeys
-	// upstream's ONNX export — newer ORT versions accept the same models but we want a
-	// stable baseline. License: MIT (GPL-compatible).
-	implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'
+	// ARM), which is what the Schok F1 is. ExecuTorch can't help here (arm64-only).
+	// Bumped from 1.20.0 → 1.26.0: 1.20.0's armv7 build hit a SIGBUS/BUS_ADRALN inside the
+	// flatbuffer model parser during createSession, regardless of byte-array vs file-path
+	// loading. Hoping 1.26.0's alignment fixes resolve it. License: MIT (GPL-compatible).
+	implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.26.0'
 }

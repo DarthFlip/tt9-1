@@ -47,7 +47,12 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// in the fine pass already differentiates similar-shape candidates, so the pruner doesn't
 		// need to be aggressive. Back to 7.0 (between Florisboard's permissive 8.42 and the
 		// over-tight 5.0). Empirical: never see all-empty results at 7.0.
-		private const val PRUNING_LENGTH_THRESHOLD = 7.0
+		// FlorisBoard/SHARK² use 8.42×keyRadius. Earlier we tried 5.0 (too aggressive — short
+		// swipes returned 0 candidates) then 7.0 (still under upstream). Bumping to 8.42
+		// matches the literature: the length-match continuous penalty inside the fine pass
+		// already differentiates similar-shape candidates, so the pruner only needs to drop
+		// obviously-wrong-length words. Looser pruner = more candidates surface.
+		private const val PRUNING_LENGTH_THRESHOLD = 8.42
 		// Halved from 200 → 100 to bring the warm-cache gesture cost under 200ms. With the
 		// cached resampled+normalized ideal gestures (cachedResampledIdeal), 100 sample points
 		// still captures the shape; the bottleneck was the per-point distance/direction math.
@@ -89,6 +94,9 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// with log compression below, common words still consistently win ties without drowning
 		// out the shape signal.
 		private const val FREQUENCY_FLOOR: Float = 5f
+		/** Top-N most-frequent words to score for swipe. Past ~40k the tail is pure distractor
+		 *  noise — words that shape-match but the user never types. */
+		private const val VOCAB_CAP: Int = 40_000
 		// N-gram context boost: when a candidate appears in MindReader's current next-word
 		// predictions (bigram/trigram lookahead based on prior committed words), its score
 		// gets multiplied by this. 4× is enough to lift a contextually-correct word over a
@@ -158,7 +166,16 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 
 	override fun setWordProvider(provider: WordProvider) {
 		this.wordProvider = provider
-		this.words = provider.getListOfWords()
+		// Cap to top-frequency words. Past ~40k the long tail is noise — rare words that
+		// shape-match the gesture but aren't what the user typed. Per the SHARK² research,
+		// 40k covers >99% of typed text; the extras only hurt accuracy by adding distractor
+		// candidates. Also halves the pruner build cost.
+		val allWords = provider.getListOfWords()
+		this.words = if (allWords.size > VOCAB_CAP) {
+			allWords.sortedByDescending { provider.getFrequencyForWord(it) }.subList(0, VOCAB_CAP)
+		} else {
+			allWords
+		}
 		this.wordsReady = true
 		lruSuggestionCache.evictAll()
 		cachedResampledIdeal.clear()
@@ -352,18 +369,23 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 				// in the 0.1–1.0 range.
 				val rawFrequency = 255f * wordProvider.getFrequencyForWord(word)
 				val frequency = kotlin.math.ln(1f + rawFrequency)
-				// Soft proximity penalty: distance² from gesture start/end to the word's
-				// actual first/last key, halved at the end (users overshoot on swipe-out).
-				// Added directly to confidence (smaller = better), so further-off keys score worse
-				// without being eliminated by hard pruning.
+				// First-key Bayesian prior + end-key soft penalty. Per the SHARK² paper, the
+				// first touched key is the single highest-confidence signal of user intent
+				// (they deliberately tap down on the intended key). We model it as a Gaussian
+				// likelihood: P(intended first key = X | touched at point P) ∝ exp(-||P - X||²/(2σ²)).
+				// Multiplied into confidence_inv so distant-first-key candidates get suppressed
+				// much more aggressively than the previous additive penalty allowed.
 				val firstKey = wordKeyAt(word, prefixLen)
 				val lastKey = wordKeyAt(word, word.length - 1)
-				var proximityPenalty = 0f
-				if (firstKey != null) {
+				val firstKeyPrior = if (firstKey != null) {
 					val sdx = gesture.getFirstX() - firstKey.centerX
 					val sdy = gesture.getFirstY() - firstKey.centerY
-					proximityPenalty += START_PROXIMITY_PENALTY_FACTOR * (sdx * sdx + sdy * sdy)
-				}
+					val distSq = sdx * sdx + sdy * sdy
+					// σ = key radius. Touch at key center → prior=1; one-key-away → ~e^(-2) ≈ 0.135
+					val sigma = (radius + 1f)
+					kotlin.math.exp(-distSq / (2f * sigma * sigma))
+				} else 1f
+				var proximityPenalty = 0f
 				if (lastKey != null) {
 					val edx = gesture.getLastX() - lastKey.centerX
 					val edy = gesture.getLastY() - lastKey.centerY
@@ -381,7 +403,7 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 				// Free win when user types in sentences: "happy birthday" makes "birthday" win
 				// over shape-similar "boundary" even when shape-distance favours the latter.
 				val contextMultiplier = if (contextWords.isNotEmpty() && word.lowercase() in contextWords) CONTEXT_BOOST else 1f
-				val confidence = (1.0f / (shapeProbability * locationProbability * (frequency + FREQUENCY_FLOOR) * contextMultiplier)) + proximityPenalty + lengthPenalty
+				val confidence = (1.0f / (shapeProbability * locationProbability * (frequency + FREQUENCY_FLOOR) * contextMultiplier * (firstKeyPrior + 0.01f))) + proximityPenalty + lengthPenalty
 
 				var candidateDistanceSortedIndex = 0
 				var duplicateIndex = Int.MAX_VALUE
