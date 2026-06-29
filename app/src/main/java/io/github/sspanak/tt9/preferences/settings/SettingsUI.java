@@ -45,8 +45,14 @@ public class SettingsUI extends SettingsTyping {
 
 		DEFAULT_LARGE_LAYOUT = LAYOUT_NUMPAD;
 
+		// tt9 fork default: QWERTY is the on-screen swipe-friendly layout, so it makes the
+		// most sense out-of-the-box for touchscreen devices. The upstream defaults (TRAY for
+		// hardware-keyboard devices, SMALL for backspace-less, NUMPAD for no-keyboard) stay
+		// for the edge cases — but if there's a touchscreen, prefer QWERTY.
 		if (DeviceInfo.noKeyboard(context)) {
 			DEFAULT_LAYOUT = DEFAULT_LARGE_LAYOUT;
+		} else if (!DeviceInfo.noTouchScreen(context)) {
+			DEFAULT_LAYOUT = LAYOUT_QWERTY;
 		} else if (DeviceInfo.noBackspaceKey() && !DeviceInfo.noTouchScreen(context)) {
 			DEFAULT_LAYOUT = LAYOUT_SMALL;
 		} else {

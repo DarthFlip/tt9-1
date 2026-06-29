@@ -56,7 +56,10 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// Halved from 200 → 100 to bring the warm-cache gesture cost under 200ms. With the
 		// cached resampled+normalized ideal gestures (cachedResampledIdeal), 100 sample points
 		// still captures the shape; the bottleneck was the per-point distance/direction math.
-		private const val REFERENCE_SAMPLES: Int = 100
+		// 100 → 64. The original SHARK² paper uses 100 sampling points, but per-point cost
+		// dominates the fine-pass loop. 64 still preserves direction-change resolution (corner
+		// points correlate with letters) but cuts shape distance compute by 36%.
+		private const val REFERENCE_SAMPLES: Int = 64
 		private const val SAMPLES_PER_KEY: Float = 25f
 		private const val MIN_SAMPLES: Int = 80
 		private const val MAX_SAMPLES: Int = 240
@@ -117,7 +120,12 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 		// service between sessions, defeating the warm-cache speedup). Fewer fine-pass words
 		// means lower worst-case latency. If correct candidates start being dropped at the
 		// coarse stage we can bump this back up.
-		private const val COARSE_TOP_N: Int = 100
+		// Tightened from 100 → 30 for latency. Logs showed 1.3s per gesture with 100 candidates
+		// in the fine pass — each scoring is ~12ms (ideal-gesture gen + resample + per-point
+		// shape distance over 100 samples). 30 candidates × 12ms = 360ms target. The coarse
+		// pass already ranks corners-only shape distance; the top 30 are very likely to contain
+		// the right word, and the fine pass is just for ordering.
+		private const val COARSE_TOP_N: Int = 30
 		// Minimum post-prune candidate set size before the coarse pass is even worth running.
 		// Lowered 400 → 150 so smaller candidate sets ALSO benefit from the coarse-prune
 		// speedup. Below 150 the fine pass alone is genuinely fast.

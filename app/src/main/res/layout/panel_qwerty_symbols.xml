@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Symbol panel for the QWERTY layout. Toggled visible/gone by SoftKeyQwertyInputMode
+	(bottom-left key). Pure tap input — swipe detection skips these because
+	SwipeableKeyboardContainer's `collectKeysAndConfigure` filters by `c.isLetter()`.
+
+	Layout mirrors a standard Gboard ?123 page: numbers on top, symbols in the middle,
+	punctuation + the same bottom row of input-mode / space / enter as the letter panel.
+-->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:orientation="vertical"
+	android:visibility="gone"
+	tools:ignore="HardcodedText"
+	xmlns:tools="http://schemas.android.com/tools">
+
+	<!-- Row 1: 1 2 3 4 5 6 7 8 9 0 -->
+	<LinearLayout style="@style/TTheme.Qwerty.Row">
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="1" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="2" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="3" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="4" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="5" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="6" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="7" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="8" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="9" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="0" />
+	</LinearLayout>
+
+	<!-- Row 2: @ # $ _ &amp; - + ( ) / -->
+	<LinearLayout style="@style/TTheme.Qwerty.Row">
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="@" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="#" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="$" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="_" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="&amp;" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="-" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="+" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="(" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text=")" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="/" />
+	</LinearLayout>
+
+	<!-- Row 3: * " ' : ; ! ? + backspace -->
+	<LinearLayout style="@style/TTheme.Qwerty.Row">
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="*" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="&quot;" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="\'" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text=":" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text=";" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="!" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter style="@style/TTheme.Qwerty.Key" android:text="?" />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyBackspace
+			android:id="@+id/soft_key_qwerty_symbols_backspace"
+			style="@style/TTheme.Qwerty.Key.Fn" />
+	</LinearLayout>
+
+	<!-- Row 4: ABC | , | space | . | enter — same bottom row as letter panel -->
+	<LinearLayout style="@style/TTheme.Qwerty.Row">
+		<RelativeLayout
+			android:layout_width="0dp"
+			android:layout_height="match_parent"
+			android:layout_weight="1.5"
+			android:layout_marginLeft="2dp"
+			android:layout_marginRight="2dp">
+			<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyInputMode
+				android:id="@+id/soft_key_qwerty_symbols_abc"
+				style="@style/TTheme.Qwerty.Key.Fn"
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:layout_margin="0dp"
+				android:layout_weight="0" />
+		</RelativeLayout>
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter
+			style="@style/TTheme.Qwerty.Key"
+			android:text="," />
+		<RelativeLayout
+			android:layout_width="0dp"
+			android:layout_height="match_parent"
+			android:layout_weight="4"
+			android:layout_marginLeft="2dp"
+			android:layout_marginRight="2dp">
+			<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertySpace
+				android:id="@+id/soft_key_qwerty_symbols_space"
+				style="@style/TTheme.Qwerty.Key.Space"
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:layout_margin="0dp"
+				android:layout_weight="0"
+				android:text=" " />
+		</RelativeLayout>
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyLetter
+			style="@style/TTheme.Qwerty.Key"
+			android:text="." />
+		<io.github.sspanak.tt9.ui.main.keys.SoftKeyQwertyOk
+			android:id="@+id/soft_key_qwerty_symbols_ok"
+			style="@style/TTheme.Qwerty.Key.Ok"
+			android:layout_weight="1.5"
+			android:drawableLeft="@drawable/ic_enter"
+			android:drawablePadding="0dp" />
+	</LinearLayout>
+
+</LinearLayout>
