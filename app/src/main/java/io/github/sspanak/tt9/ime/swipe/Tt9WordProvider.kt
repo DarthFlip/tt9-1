@@ -33,9 +33,11 @@ class Tt9WordProvider private constructor() : WordProvider {
 
 	companion object {
 		private val cache = HashMap<Int, Tt9WordProvider>()
-		// Additive bump per acceptance. Picked small so it nudges ordering without overwhelming
-		// the disk frequency for very common words; accumulates for words the user keeps picking.
-		private const val FREQUENCY_BUMP_PER_USE: Float = 0.10f
+		// Additive bump per acceptance. Bumped 0.10 → 0.25 so a single user choice meaningfully
+		// outweighs the shape-distance signal for similar-shape candidates. With 0.10, the user
+		// had to pick the same word 3-4 times before it reliably reranked above shape-similar
+		// distractors. At 0.25, a single acceptance is decisive next time.
+		private const val FREQUENCY_BUMP_PER_USE: Float = 0.25f
 
 		/**
 		 * Increment the in-memory frequency boost for [word] in [languageId]'s cached provider.
