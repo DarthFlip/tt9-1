@@ -438,13 +438,11 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return false;
 		}
 
-		// QWERTY layout is locked to Predictive — the bottom-left key was repurposed as the
-		// ?123/ABC symbols toggle, and the rest of the QWERTY UX assumes letter-prefix suggestions
-		// are always available. Ignore any stray mode-cycle commands (physical-keypad bindings,
-		// hold gestures) while QWERTY is active.
-		if (settings.isMainLayoutQwerty()) {
-			return false;
-		}
+		// (Removed) QWERTY-layout mode-cycle short-circuit. The physical # key is the standard
+		// way to cycle modes on the kosher-firmware F1 keypad; blocking it on QWERTY broke a
+		// muscle-memory affordance users were relying on. The Phase-3 force-Predictive logic
+		// in determineInputModeId() still picks Predictive as the DEFAULT mode whenever the
+		// QWERTY layout becomes active — but the user can cycle out of it explicitly via #.
 
 		if (validateOnly) {
 			return true;
