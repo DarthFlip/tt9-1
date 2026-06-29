@@ -118,13 +118,13 @@ public class StatusBar {
 
 
 	public void setText(InputMode inputMode) {
-		// On the QWERTY layout, the user can see the letters they're typing directly — the
-		// "[ English ]" / "[ ABC ]" mode indicator is redundant and visually noisy. Hide it so
-		// the strip area stays clean when there are no suggestions (Gboard does the same).
-		if (settings.isMainLayoutQwerty()) {
-			setText("");
-			return;
-		}
+		// Show the mode indicator on ALL layouts including QWERTY. Suggestions render
+		// in a RecyclerView that overlays this TextView, so when suggestions exist the
+		// user sees those instead — the mode text only shows through when the strip
+		// would otherwise be empty. That's a useful UX: user always knows whether they're
+		// in Predictive / ABC / Numeric, and the "where did suggestions go?" mystery
+		// disappears (e.g. after pressing # to cycle into ABC, the indicator immediately
+		// reflects that).
 		setText("[ " + inputMode.toString() + " ]");
 	}
 

@@ -145,8 +145,9 @@ public class WordPredictions extends Predictions {
 		// when there are no prefix matches at all (the case where generateWordVariations used
 		// to fire with T9 textonyms).
 		insertFuzzyCandidates(words);
-		// Smart contractions LAST so they have absolute position-0 priority over fuzzy/prefix
-		// (someone typing "im" or "dont" expects "I'm"/"don't" — not a fuzzy near-miss).
+		// Smart contractions inserted at position 1 (visible alternative, not auto-committed).
+		// Previously placed at position 0 — the auto-promotion felt surprising to the user
+		// when they DID want "im" or "dont" typed literally (e.g. lowercase casual style).
 		applySmartContraction(words);
 
 		onWordsChanged.run();
@@ -218,23 +219,12 @@ public class WordPredictions extends Predictions {
 		}
 
 		if (hits.isEmpty()) return;
-		// Where to insert the fuzzy hits is the call that turns "shows a fuzzy candidate" into
-		// "Gboard-style inline autocorrect on space." If the typed letters DON'T spell a real
-		// dictionary word (e.g. "teh"), the best fuzzy correction belongs at position 0 so that
-		// pressing space — which commits the top suggestion via acceptIncomplete() — actually
-		// types the corrected word. If the typed letters ARE a real word ("the"), keep the
-		// literal at position 0 and tuck fuzzy variants underneath as alternatives.
-		final boolean stemIsRealWord = Tt9WordProvider.containsWord(langId, prefix);
-		final int insertAt;
-		if (!stemIsRealWord) {
-			// Move the typed-stem entry (if it's at position 0 from suggestStem) down by 1, then
-			// insert fuzzy hits at position 0. Net effect: top fuzzy correction commits on space.
-			insertAt = 0;
-		} else if (out.isEmpty()) {
-			insertAt = 0;
-		} else {
-			insertAt = 1;
-		}
+		// Insert fuzzy hits at position 1 so they're VISIBLE but never silently committed by
+		// space. The literal typed stem stays at position 0 — what the user typed is what they
+		// get on space. (Earlier inline-autocorrect-on-space variant displaced the stem when
+		// it wasn't a known word; user found it surprising and asked to roll it back. Fuzzy
+		// stays as a tappable suggestion alongside the literal.)
+		final int insertAt = out.isEmpty() ? 0 : 1;
 		out.addAll(insertAt, hits);
 	}
 
@@ -312,7 +302,10 @@ public class WordPredictions extends Predictions {
 		final String contraction = SMART_CONTRACTIONS.get(typed);
 		if (contraction == null) return;
 		out.remove(contraction);
-		out.add(0, contraction);
+		// Insert at position 1 (after the literal typed stem) — user can tap to accept the
+		// contraction but it doesn't auto-commit on space. Surprises users less.
+		final int insertAt = out.isEmpty() ? 0 : 1;
+		out.add(insertAt, contraction);
 	}
 
 	/**
