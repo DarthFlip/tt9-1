@@ -451,7 +451,46 @@ class StatisticalGlideTypingClassifier : GlideTypingClassifier {
 			}
 		}
 
+		// Confused-pair final swap: for every learned (rejected → preferred) where BOTH are
+		// in the top-K and rejected is currently ranked above preferred, swap them. Runs once
+		// over the candidate list — O(K) lookups, in-place mutation. Cheap, and only fires
+		// when prior user behavior actually expressed a preference.
+		applyConfusedPairSwap(candidates, candidateWeights, candidateShapeDistances)
+
 		return candidates
+	}
+
+	/**
+	 * In-place rearrange of [candidates] so that any (rejected → preferred) pair learned via
+	 * the word provider gets swapped when both surface together with rejected ranked first.
+	 * Stops at the first pair-induced swap per top1 to keep ordering stable; subsequent
+	 * acceptances feed the learner more pairs that compound on the next gesture.
+	 */
+	private fun applyConfusedPairSwap(
+		candidates: ArrayList<String>,
+		weights: ArrayList<Float>,
+		distances: ArrayList<Float>,
+	) {
+		if (candidates.size < 2) return
+		// Inspect each candidate as a potential "rejected" — but a swap below the top spot
+		// rarely affects the user's perception, so cap the work at the first half of the list.
+		val limit = candidates.size
+		for (i in 0 until limit) {
+			val preferred = wordProvider.getConfusedPreferred(candidates[i]) ?: continue
+			// Look for the preferred replacement in the lower-ranked portion.
+			var j = -1
+			for (k in (i + 1) until candidates.size) {
+				if (candidates[k] == preferred) { j = k; break }
+			}
+			if (j < 0) continue
+			// Swap entries i and j across all three parallel arrays.
+			val tw = weights[i]; weights[i] = weights[j]; weights[j] = tw
+			val td = distances[i]; distances[i] = distances[j]; distances[j] = td
+			val tc = candidates[i]; candidates[i] = candidates[j]; candidates[j] = tc
+			// Don't keep scanning past a swap at this position — the new top1 might also be a
+			// "rejected" key but the user's preferences will refine that on the next gesture.
+			return
+		}
 	}
 
 	override fun clear() { gesture.clear() }

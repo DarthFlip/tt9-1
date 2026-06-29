@@ -25,6 +25,13 @@ class Tt9WordProvider private constructor() : WordProvider {
 	// applied in getFrequencyForWord is (1 - penalty). Accumulates across multiple rejections
 	// of the same word — three strikes leaves it ~very-low priority.
 	private val sessionPenalty = java.util.concurrent.ConcurrentHashMap<String, Float>()
+	// Confused-pair map: when the user rejects A then accepts B, we remember A→B. Next time
+	// the ranker emits both in the top-K with A ranked above B, we swap them so B wins. The
+	// per-word session boost/penalty already pushes ranking in the right direction; the pair
+	// map is the targeted final-pass swap for the cases where similar-shape rivals stay too
+	// close in score for the boost alone to flip them. Lowercase keys; one preferred per
+	// rejected (last write wins — if the user later rejects A in favor of C, A→C overwrites).
+	private val confusedPairs = java.util.concurrent.ConcurrentHashMap<String, String>()
 
 	val isLoaded: Boolean get() = words.isNotEmpty()
 
@@ -37,6 +44,9 @@ class Tt9WordProvider private constructor() : WordProvider {
 		val penaltyMul = (1f - penalty).coerceAtLeast(0.05f)
 		return ((base + boost) * penaltyMul).coerceAtMost(1f)
 	}
+
+	/** The preferred replacement for [rejected] (lowercase), or null if no pair recorded. */
+	override fun getConfusedPreferred(rejected: String): String? = confusedPairs[rejected]
 
 	companion object {
 		private val cache = HashMap<Int, Tt9WordProvider>()
@@ -78,6 +88,36 @@ class Tt9WordProvider private constructor() : WordProvider {
 			provider.sessionPenalty.merge(key, PENALTY_PER_REJECTION) { a, b ->
 				(a + b).coerceAtMost(0.9f)
 			}
+		}
+
+		/**
+		 * Record that the user rejected [rejected] and accepted [accepted] (lowercase, in
+		 * [languageId]). Stored as a directional pair consulted by the classifier's final
+		 * re-rank pass — when both words appear in the top-K, [accepted] gets swapped above
+		 * [rejected]. Also stacks an extra session boost on [accepted] so it climbs in cases
+		 * where the rejected rival isn't in the top-K.
+		 */
+		@JvmStatic
+		fun recordConfusedPair(languageId: Int, rejected: String, accepted: String) {
+			if (rejected.isEmpty() || accepted.isEmpty() || rejected == accepted) return
+			val provider = synchronized(cache) { cache[languageId] } ?: return
+			if (!provider.isLoaded) return
+			val r = rejected.lowercase()
+			val a = accepted.lowercase()
+			provider.confusedPairs[r] = a
+			// Stack an extra boost on the accepted word — bumpFrequency already ran on accept,
+			// this is the "you preferred it after a rejection" signal that the ranker should
+			// give it a heavier nudge than a plain acceptance would.
+			provider.sessionBoost.merge(a, FREQUENCY_BUMP_PER_USE) { x, y -> (x + y).coerceAtMost(1f) }
+		}
+
+		/** Static accessor for the classifier's final swap pass; null if no provider/pair. */
+		@JvmStatic
+		fun getConfusedPreferred(languageId: Int, rejected: String): String? {
+			if (rejected.isEmpty()) return null
+			val provider = synchronized(cache) { cache[languageId] } ?: return null
+			if (!provider.isLoaded) return null
+			return provider.getConfusedPreferred(rejected.lowercase())
 		}
 
 		/**

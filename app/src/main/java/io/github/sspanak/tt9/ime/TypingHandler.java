@@ -80,6 +80,17 @@ public abstract class TypingHandler extends KeyPadHandler {
 	// the penalty to whichever language is current at backspace.
 	private int lastGlideCommittedLangId = -1;
 
+	// Confused-pair learning: after a rejection penalty fires, the next glide commit (within
+	// CONFUSED_PAIR_WINDOW_MS, same language, different word) is interpreted as "the user
+	// preferred this over the rejected one." We record (rejected → accepted) in the per-language
+	// pair table so the classifier can swap them next time both appear in the top-K. The window
+	// is longer than the rejection window because the user often takes a couple seconds to
+	// reformulate the gesture they meant.
+	private static final long CONFUSED_PAIR_WINDOW_MS = 10000L;
+	private String lastRejectedGlideWord = "";
+	private long lastRejectionTimeMs = 0L;
+	private int lastRejectionLangId = -1;
+
 	/** Drop the wrong-result rejection arm without firing the penalty. */
 	private void clearGlideRejectionArm() {
 		lastGlideCommittedWord = "";
@@ -314,11 +325,25 @@ public abstract class TypingHandler extends KeyPadHandler {
 		mInputMode.onAcceptSuggestion(lastWord);
 		if (mLanguage != null && new Text(lastWord).isAlphabetic()) {
 			textField.setText(Characters.getSpace(mLanguage));
-			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lastWord.toLowerCase());
+			final String lowerLast = lastWord.toLowerCase();
+			Tt9WordProvider.bumpFrequency(mLanguage.getId(), lowerLast);
+			// Confused-pair learner: if the user just rejected a different word in the recent
+			// past (same language), interpret this commit as "this is what I meant instead."
+			// Record the pair so the classifier swaps them whenever both surface together.
+			if (!lastRejectedGlideWord.isEmpty()
+					&& lastRejectionLangId == mLanguage.getId()
+					&& !lastRejectedGlideWord.equals(lowerLast)
+					&& System.currentTimeMillis() - lastRejectionTimeMs < CONFUSED_PAIR_WINDOW_MS) {
+				Tt9WordProvider.recordConfusedPair(mLanguage.getId(), lastRejectedGlideWord, lowerLast);
+			}
+			// Whether or not a pair was recorded, the rejection arm is now consumed.
+			lastRejectedGlideWord = "";
+			lastRejectionTimeMs = 0L;
+			lastRejectionLangId = -1;
 			// Arm the rejection-window: if the user backspaces within REJECTION_WINDOW_MS,
 			// this commit was wrong and we'll penalize lastWord's frequency. Capture the langId
 			// so a language switch before backspace doesn't mis-penalize a different language.
-			lastGlideCommittedWord = lastWord.toLowerCase();
+			lastGlideCommittedWord = lowerLast;
 			lastGlideCommitTimeMs = System.currentTimeMillis();
 			lastGlideCommittedLangId = mLanguage.getId();
 		}
@@ -548,6 +573,12 @@ public abstract class TypingHandler extends KeyPadHandler {
 				&& lastGlideCommittedLangId == mLanguage.getId()
 				&& System.currentTimeMillis() - lastGlideCommitTimeMs < REJECTION_WINDOW_MS) {
 			Tt9WordProvider.penalizeFrequency(mLanguage.getId(), lastGlideCommittedWord);
+			// Arm the confused-pair learner: if the user glide-accepts a DIFFERENT word in the
+			// next CONFUSED_PAIR_WINDOW_MS (same language), we'll record (this → that) as the
+			// preferred swap and trigger the ranker's final swap pass next time both surface.
+			lastRejectedGlideWord = lastGlideCommittedWord;
+			lastRejectionTimeMs = System.currentTimeMillis();
+			lastRejectionLangId = mLanguage.getId();
 			clearGlideRejectionArm();
 		}
 

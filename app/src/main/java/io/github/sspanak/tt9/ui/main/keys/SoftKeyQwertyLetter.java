@@ -6,6 +6,7 @@ import android.util.AttributeSet;
 import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.swipe.KeyOffsetAdapter;
 import io.github.sspanak.tt9.languages.Language;
+import io.github.sspanak.tt9.ui.Vibration;
 
 public class SoftKeyQwertyLetter extends SoftKeyText {
 	private String keyChar = "";
@@ -42,6 +43,25 @@ public class SoftKeyQwertyLetter extends SoftKeyText {
 	@Override
 	protected boolean handleRelease() {
 		return tt9 != null && tt9.onQwertyLetter(keyChar);
+	}
+
+	/**
+	 * Long-press emits the uppercase variant of this letter as a literal one-shot — Gboard-style
+	 * capital. Goes through onText so any in-progress composing word commits first and the cap
+	 * lands as standalone text. After the hold, preventRepeat() stops auto-repeat AND suppresses
+	 * the upcoming ACTION_UP handleRelease so we don't double-emit the lowercase letter.
+	 */
+	@Override
+	protected void handleHold() {
+		preventRepeat();
+		if (tt9 == null || keyChar.isEmpty()) return;
+		tt9.onText(keyChar.toUpperCase(), false);
+		vibrate(Vibration.getHoldVibration());
+	}
+
+	@Override
+	public boolean isHoldEnabled() {
+		return true;
 	}
 
 
