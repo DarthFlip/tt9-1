@@ -118,6 +118,16 @@ public class SettingsUI extends SettingsTyping {
 		return prefs.getBoolean(SwitchHapticFeedback.NAME, SwitchHapticFeedback.DEFAULT);
 	}
 
+	/**
+	 * Subtle audio key-tap. Default OFF — most users find it annoying, but it's standard
+	 * affordance on stock Android keyboards and the Gboard-on-MegaLife target should expose
+	 * the option. Plays a system click via View.playSoundEffect(SoundEffectConstants.KEYBOARD_TAP)
+	 * — no SoundPool / bundled asset needed.
+	 */
+	public boolean getSoundFeedback() {
+		return prefs.getBoolean("pref_sound_feedback", false);
+	}
+
 	public int getAlignment() {
 		return getStringifiedInt(DropDownAlignment.NAME, Gravity.CENTER_HORIZONTAL);
 	}

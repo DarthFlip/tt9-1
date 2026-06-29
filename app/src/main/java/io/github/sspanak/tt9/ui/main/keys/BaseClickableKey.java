@@ -174,6 +174,13 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 	protected boolean handlePress() {
 		if (validateTT9Handler() && getVisibility() == VISIBLE) {
 			vibrate(Vibration.getPressVibration(this));
+			// Subtle audio click via the platform's built-in keyboard-tap sound effect. Default
+			// off — toggled in Settings → UI. Uses View.playSoundEffect so we don't bundle audio
+			// assets; the OS routes through the user's notification/media volume per their
+			// system preferences. Safe to call even if disabled (gated on the setting).
+			if (tt9 != null && tt9.getSettings() != null && tt9.getSettings().getSoundFeedback()) {
+				playSoundEffect(android.view.SoundEffectConstants.CLICK);
+			}
 		}
 
 		return false;
