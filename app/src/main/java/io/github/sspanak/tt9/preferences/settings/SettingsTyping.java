@@ -105,6 +105,19 @@ class SettingsTyping extends SettingsPunctuation {
 	}
 
 	public boolean getShowSuggestions() {
+		// On the QWERTY on-screen layout, suggestions are ALWAYS on — the QWERTY pipeline
+		// uses its own qwertyInputMode which is always Predictive, independent of whatever
+		// `getInputMode()` (mInputMode / T9-side) is currently cycled to. Without this gate,
+		// pressing # to cycle T9 into ABC would silently hide the QWERTY strip. We check the
+		// layout preference directly (inlined here because isMainLayoutQwerty lives on the
+		// SettingsUI subclass, not accessible from this base).
+		final int currentLayout = getStringifiedInt(
+			io.github.sspanak.tt9.preferences.screens.appearance.DropDownLayoutType.NAME,
+			-1
+		);
+		if (currentLayout == SettingsUI.LAYOUT_QWERTY) {
+			return true;
+		}
 		final int inputMode = getInputMode();
 		final boolean showInAbc = prefs.getBoolean("show_suggestions_abc", false);
 
