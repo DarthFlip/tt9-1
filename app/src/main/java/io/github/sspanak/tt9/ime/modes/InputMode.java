@@ -201,6 +201,18 @@ abstract public class InputMode {
 		suggestions = new ArrayList<>();
 	}
 
+	/**
+	 * Mark this InputMode's underlying prediction pipeline as belonging to the on-screen
+	 * QWERTY layer (as opposed to the T9 physical keypad). Subclasses that own a
+	 * WordPredictions instance override to forward the flag; the default is a no-op so it's
+	 * safe to call on any InputMode. Used by TypingHandler after allocating `qwertyInputMode`
+	 * so QWERTY-only ranking enhancements (bigram-context boost, seed injection) know to
+	 * fire.
+	 */
+	public InputMode markAsQwertyPipeline() {
+		return this;
+	}
+
 	// recomposing
 	public void beforeDeleteText() {}
 	public String recompose() { return null; }

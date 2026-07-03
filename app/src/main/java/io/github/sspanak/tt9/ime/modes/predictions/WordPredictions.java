@@ -22,6 +22,15 @@ public class WordPredictions extends Predictions {
 	private String lastEnforcedTopWord;
 	protected String penultimateWord;
 
+	/**
+	 * When true, this instance belongs to the on-screen QWERTY pipeline (owned by
+	 * `qwertyInputMode`) and is eligible for QWERTY-only enhancements: bigram-context boost
+	 * over prefix completions, seeded next-word candidates, etc. Set exclusively by
+	 * TypingHandler.onStart when it allocates `qwertyInputMode`. The T9 pipeline's
+	 * WordPredictions instance never has this true → every gated codepath is a no-op for T9.
+	 */
+	private boolean qwertyOnly = false;
+
 
 	public WordPredictions(SettingsStore settings) {
 		super(settings);
@@ -29,6 +38,16 @@ public class WordPredictions extends Predictions {
 		localeWordsSorter = new LocaleWordsSorter(null);
 		penultimateWord = "";
 		stem = "";
+	}
+
+	/** See {@link #qwertyOnly}. Idempotent. Fire-and-forget setter — no other state depends on it. */
+	public WordPredictions setQwertyOnly(boolean yes) {
+		this.qwertyOnly = yes;
+		return this;
+	}
+
+	public boolean isQwertyOnly() {
+		return qwertyOnly;
 	}
 
 
@@ -139,6 +158,14 @@ public class WordPredictions extends Predictions {
 			suggestMissingWords(generateWordVariations(inputWord), newWords);
 		}
 		words = insertPunctuationCompletions(newWords);
+		// QWERTY-only: reorder prefix candidates by seeded bigram context. If the user just
+		// committed a word that's a common context anchor (e.g. "the", "happy", "to"), lift
+		// matching prefix completions to the front. Small precision win with no risk to T9
+		// because the whole method early-returns when `qwertyOnly` is false. Runs BEFORE fuzzy
+		// injection so fuzzy adds still sit below the context-lifted primary candidates.
+		if (qwertyOnly && qwertyExactMode) {
+			applyBigramContextBoost(words);
+		}
 		// Fuzzy typo-correction (Damerau-Levenshtein distance 1): inject up to 3 dictionary
 		// words that are one edit away from the typed prefix. Insert at position 1 so they sit
 		// just below the top prefix-match for normal typing, and act as the primary fallback
@@ -251,6 +278,52 @@ public class WordPredictions extends Predictions {
 		if (!Tt9WordProvider.containsWord(langId, variant)) return;
 		seen.add(variant);
 		hits.add(variant);
+	}
+
+
+	/**
+	 * QWERTY-only bigram-context boost. Reads the previously-committed word (via
+	 * `getPenultimateWord`) and looks up its seeded next-word candidates in
+	 * {@link io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed}. Any prefix-completion in [out]
+	 * that appears in that set is moved to the front of the list, preserving relative order
+	 * among boosted / non-boosted entries.
+	 *
+	 * No-op for T9 (gated on `qwertyOnly` at the call site) and no-op if the language isn't
+	 * seeded (`en` for now). Runs on the main thread; the seed lookup is a single HashMap get
+	 * + a short list scan — under 1 ms even in cold-cache pathological cases.
+	 */
+	private void applyBigramContextBoost(@NonNull ArrayList<String> out) {
+		if (out.size() < 2) return;
+		if (language == null) return;
+		final String langCode = language.getCode();
+		if (langCode == null || langCode.isEmpty()) return;
+		String prev = penultimateWord;
+		if (prev == null || prev.isEmpty()) {
+			// Not yet resolved (setDigitSequence hasn't triggered a refresh) — try to compute
+			// it lazily so the boost fires on the first-letter tap after a space commit too.
+			prev = getPenultimateWord(out.get(0));
+		}
+		if (prev.isEmpty()) return;
+		final java.util.List<String> boosted =
+			io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.getNextWordsAfter(langCode, prev.toLowerCase(language.getLocale()), 20);
+		if (boosted.isEmpty()) return;
+		final java.util.HashSet<String> boostedSet = new java.util.HashSet<>(boosted);
+		// Stable partition: everything in `boostedSet` goes to the front, in original order;
+		// remaining entries follow in original order.
+		final ArrayList<String> front = new ArrayList<>(4);
+		final ArrayList<String> rest = new ArrayList<>(out.size());
+		for (String w : out) {
+			if (w == null) continue;
+			if (boostedSet.contains(w.toLowerCase(language.getLocale()))) {
+				front.add(w);
+			} else {
+				rest.add(w);
+			}
+		}
+		if (front.isEmpty()) return;
+		out.clear();
+		out.addAll(front);
+		out.addAll(rest);
 	}
 
 

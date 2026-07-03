@@ -289,6 +289,30 @@ abstract public class SuggestionHandler extends TypingHandler {
 	@MainThread
 	private boolean handleGuesses() {
 		final ArrayList<String> guesses = mindReader.getGuesses();
+		// QWERTY-only: merge seeded next-word candidates from QwertyBigramSeed. This fixes the
+		// cold-start problem where MindReader has no learned bigrams yet and the strip stays
+		// empty after a space commit on a fresh install. Gated on `activeInputMode ==
+		// qwertyInputMode` so T9's next-word rendering stays byte-identical. User-learned
+		// guesses always win ties — seed entries are appended after MindReader's.
+		if (activeInputMode == qwertyInputMode
+				&& mLanguage != null
+				&& mLanguage.getCode() != null
+				&& lastGuessContextWord != null
+				&& !lastGuessContextWord.isEmpty()) {
+			final java.util.List<String> seeded =
+				io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.getNextWordsAfter(mLanguage.getCode(), lastGuessContextWord, 5);
+			for (String s : seeded) {
+				if (s == null || s.isEmpty()) continue;
+				boolean already = false;
+				for (String g : guesses) {
+					if (g != null && g.equalsIgnoreCase(s)) {
+						already = true;
+						break;
+					}
+				}
+				if (!already) guesses.add(s);
+			}
+		}
 		// Predictive emoji: when the word just committed has a relevant emoji, inject it at
 		// position 1 (NEVER position 0 — the top guess gets written into the composing region
 		// via appHacks.setComposingText below, and rendering an emoji there would be weird).

@@ -7,6 +7,7 @@ apply from: 'build-definitions.gradle'
 apply from: 'build-dictionaries.gradle'
 apply from: 'validate-languages.gradle'
 apply from: 'help-tools.gradle'
+apply from: 'bundle-bigram-seed.gradle'
 apply from: 'status-icon-tools.gradle'
 apply from: 'version-tools.gradle'
 // (Removed) apply from: 'download-neural-model.gradle' — the neural swipe decoder was

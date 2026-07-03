@@ -173,7 +173,18 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// etc.), reuse `mInputMode` — the QWERTY path is gated by the layout anyway and
 		// won't fire on those field types.
 		if (allowedInputModes.contains(InputMode.MODE_PREDICTIVE)) {
-			qwertyInputMode = InputMode.getInstance(settings, mLanguage, inputType, textField, InputMode.MODE_PREDICTIVE);
+			qwertyInputMode = InputMode.getInstance(settings, mLanguage, inputType, textField, InputMode.MODE_PREDICTIVE)
+				// Mark this as the QWERTY-owned predictions instance so QWERTY-only ranking
+				// enhancements (bigram-context boost, seed injection) fire on its onDbWords.
+				// mInputMode's Predictions never gets this marker → T9 behavior unchanged.
+				.markAsQwertyPipeline();
+			// Warm the bigram seed for this language on a worker thread. The first
+			// prefix-completion query hits QwertyBigramSeed synchronously; kicking the load
+			// here keeps that first call sub-ms.
+			if (mLanguage != null && mLanguage.getCode() != null) {
+				final String langCode = mLanguage.getCode();
+				new Thread(() -> io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.ensureLoaded(getApplicationContext(), langCode), "tt9-bigram-seed-load").start();
+			}
 		} else {
 			qwertyInputMode = mInputMode;
 		}

@@ -1,0 +1,132 @@
+// Build-time bundler for the QWERTY-only bigram seed corpus.
+//
+// Reads the two English 2-gram CSVs bundled at app/bigram-sources/ (checked into the repo
+// from https://github.com/orgtre/google-books-ngram-frequency — CC-BY 3.0, attribution
+// in the About screen), dedupes by (word1, word2) summing frequencies across the "english"
+// and "english-fiction" variants, filters to alphabetic pairs, T9-encodes word2 so the
+// runtime doesn't have to compute the sequence per lookup, sorts by summed frequency desc,
+// and emits app/src/main/assets/seed/en_bigrams.tsv.gz.
+//
+// Output row format (tab-separated, one per line): word1 \t word2 \t T9-sequence \t frequency
+//
+// The runtime loader (QwertyBigramSeed.kt) reads this line-by-line, splits on tab, and
+// builds an in-memory Map<String, List<(String, Int)>> keyed on word1.
+//
+// This task is deterministic: given the same input CSVs, the output is bit-identical, so
+// Gradle's up-to-date detection works correctly.
+
+import java.util.zip.GZIPOutputStream
+
+def BIGRAM_SOURCES_DIR   = "${project.projectDir}/bigram-sources"
+def BIGRAM_OUTPUT_DIR    = "${project.projectDir}/src/main/assets/seed"
+def BIGRAM_OUTPUT_FILE   = "${BIGRAM_OUTPUT_DIR}/en_bigrams.tsv.gz"
+
+// Standard US QWERTY / T9 letter → digit map. Uppercase and lowercase both mapped.
+def T9_MAP = [
+    'a': '2', 'b': '2', 'c': '2',
+    'd': '3', 'e': '3', 'f': '3',
+    'g': '4', 'h': '4', 'i': '4',
+    'j': '5', 'k': '5', 'l': '5',
+    'm': '6', 'n': '6', 'o': '6',
+    'p': '7', 'q': '7', 'r': '7', 's': '7',
+    't': '8', 'u': '8', 'v': '8',
+    'w': '9', 'x': '9', 'y': '9', 'z': '9'
+]
+
+def computeT9 = { String word ->
+    def sb = new StringBuilder(word.length())
+    for (char c : word.toLowerCase().toCharArray()) {
+        def d = T9_MAP[String.valueOf(c)]
+        if (d == null) return null
+        sb.append(d)
+    }
+    return sb.toString()
+}
+
+def isAlphabetic = { String w -> w != null && !w.isEmpty() && w.every { it >= 'a' && it <= 'z' } }
+
+tasks.register('bundleBigramSeed') {
+    inputs.dir BIGRAM_SOURCES_DIR
+    outputs.file BIGRAM_OUTPUT_FILE
+
+    doLast {
+        def sources = ['2grams_english.csv', '2grams_english-fiction.csv']
+        // Map< (word1, word2), summedFrequency >
+        def merged = new LinkedHashMap<String, Long>()
+
+        sources.each { fname ->
+            def src = file("${BIGRAM_SOURCES_DIR}/${fname}")
+            if (!src.exists()) {
+                throw new GradleException("Missing bigram source: ${src}. Run the manual download step or restore the file from the repo.")
+            }
+            def lineNo = 0
+            src.eachLine('UTF-8') { line ->
+                lineNo++
+                if (lineNo == 1) return  // header "ngram,freq"
+                if (line == null || line.isEmpty()) return
+                // Split on first comma only — the ngram may contain internal spaces but no
+                // commas in this dataset.
+                int commaIdx = line.lastIndexOf(',')
+                if (commaIdx <= 0) return
+                def ngram = line.substring(0, commaIdx).trim()
+                def freqStr = line.substring(commaIdx + 1).trim()
+                long freq
+                try {
+                    freq = Long.parseLong(freqStr)
+                } catch (NumberFormatException ignored) {
+                    return
+                }
+                // Split ngram on space — must have exactly two tokens.
+                def parts = ngram.split(' ')
+                if (parts.length != 2) return
+                def w1 = parts[0].toLowerCase().trim()
+                def w2 = parts[1].toLowerCase().trim()
+                if (!isAlphabetic(w1) || !isAlphabetic(w2)) return
+                if (w1.length() < 1 || w1.length() > 20 || w2.length() < 1 || w2.length() > 20) return
+                def key = "${w1}\t${w2}".toString()
+                merged.merge(key, freq, { a, b -> (a as Long) + (b as Long) })
+            }
+        }
+
+        // Sort entries by frequency descending (stable — LinkedHashMap preserved insertion order,
+        // but we're producing a new sorted list anyway).
+        def sorted = merged.entrySet().toList()
+        sorted.sort { a, b -> Long.compare(b.value, a.value) }
+
+        // Ensure output directory exists.
+        file(BIGRAM_OUTPUT_DIR).mkdirs()
+
+        // Write gzipped TSV.
+        int written = 0
+        def outFile = file(BIGRAM_OUTPUT_FILE)
+        outFile.withOutputStream { rawOut ->
+            new GZIPOutputStream(rawOut).withWriter('UTF-8') { writer ->
+                sorted.each { entry ->
+                    def kv = entry.key.split('\t')
+                    if (kv.length != 2) return
+                    def w1 = kv[0]
+                    def w2 = kv[1]
+                    def t9 = computeT9(w2)
+                    if (t9 == null) return
+                    writer.write("${w1}\t${w2}\t${t9}\t${entry.value}\n")
+                    written++
+                }
+            }
+        }
+
+        def sizeKb = String.format('%.1f', outFile.length() / 1024.0)
+        println "bundleBigramSeed: wrote ${written} bigrams to ${outFile.path} (${sizeKb} KB gz)"
+    }
+}
+
+// Wire into the build so Android's asset merging picks up the generated file. Uses the
+// newer AGP `androidComponents { onVariants(...) }` API (the older `applicationVariants`
+// isn't exposed on AGP 9+ used by this project).
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def variantName = variant.name.capitalize()
+        tasks.matching { it.name == "merge${variantName}Assets" }.configureEach {
+            dependsOn(bundleBigramSeed)
+        }
+    }
+}

@@ -12,6 +12,7 @@ import io.github.sspanak.tt9.ime.modes.helpers.Cheonjiin;
 import io.github.sspanak.tt9.ime.modes.helpers.Sequences;
 import io.github.sspanak.tt9.ime.modes.predictions.Predictions;
 import io.github.sspanak.tt9.ime.modes.predictions.SyllablePredictions;
+import io.github.sspanak.tt9.ime.modes.predictions.WordPredictions;
 import io.github.sspanak.tt9.languages.EmojiLanguage;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageCollection;
@@ -111,6 +112,20 @@ class ModeCheonjiin extends InputMode {
 			.setOnlyExactMatches(true)
 			.setMinWords(0)
 			.setWordsChangedHandler(this::onPredictions);
+	}
+
+
+	/**
+	 * Forward the QWERTY-pipeline marker down to the owned WordPredictions instance. Only
+	 * applies when the concrete `predictions` is a WordPredictions (ModeWords) — SyllablePredictions
+	 * and other flavors ignore. Safe if the caller wraps in a null-check on the return.
+	 */
+	@Override
+	public InputMode markAsQwertyPipeline() {
+		if (predictions instanceof WordPredictions) {
+			((WordPredictions) predictions).setQwertyOnly(true);
+		}
+		return this;
 	}
 
 
