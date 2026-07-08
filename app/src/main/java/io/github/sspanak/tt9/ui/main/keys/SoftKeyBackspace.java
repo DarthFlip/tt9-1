@@ -8,7 +8,6 @@ import io.github.sspanak.tt9.R;
 import io.github.sspanak.tt9.commands.CmdBackspace;
 import io.github.sspanak.tt9.languages.LanguageKind;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
-import io.github.sspanak.tt9.ui.Vibration;
 
 public class SoftKeyBackspace extends BaseSwipeableKey {
 	private int repeat = 0;
@@ -139,7 +138,11 @@ public class SoftKeyBackspace extends BaseSwipeableKey {
 
 	@Override
 	final protected boolean handleRelease() {
-		vibrate(repeat > 0 ? Vibration.getReleaseVibration() : Vibration.getNoVibration());
+		// No release-vibrate here — BaseClickableKey.handlePress already fires a press haptic on
+		// ACTION_DOWN, and firing a second haptic when the user lifts their finger after a hold
+		// (repeat > 0) felt "messed up": the motor sat idle through the whole hold-delete stream
+		// and then buzzed after they'd already stopped. Consistent with letter keys — one haptic
+		// per input event, at press.
 		repeat = 0;
 
 		return true;
