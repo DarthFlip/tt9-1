@@ -643,8 +643,18 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 		mindReader.clearContext();
 
-		if (appHacks.onBackspace(settings, mInputMode)) {
-			mInputMode.reset();
+		// Backspace routes through whichever pipeline is currently owning the strip. Before
+		// the QWERTY/T9 separation this always operated on `mInputMode`, but with the split
+		// the QWERTY tap path holds state in `qwertyInputMode` while `mInputMode` stays empty
+		// — so we'd have entered the empty-mode branch, committed the composing region as
+		// literal text, and left `qwertyInputMode.digitSequence` stale. Using `activeInputMode`
+		// (set by onQwertyLetter to qwertyInputMode and by onNumber to mInputMode) is the
+		// clean fix. T9 backspace behavior is byte-identical because activeInputMode is
+		// mInputMode whenever the user is on the T9 keypad.
+		final InputMode backspaceMode = activeInputMode;
+
+		if (appHacks.onBackspace(settings, backspaceMode)) {
+			backspaceMode.reset();
 			mainView.renderDynamicKeys();
 			return false;
 		}
@@ -656,17 +666,17 @@ public abstract class TypingHandler extends KeyPadHandler {
 			return true;
 		}
 
-		mInputMode.beforeDeleteText();
+		backspaceMode.beforeDeleteText();
 
 		// load new words only if there is no selected text, because it would be confusing
-		if (repeat == 0 && mInputMode.onBackspace() && textSelection.isEmpty()) {
-			final Runnable onLoad = InputModeKind.isRecomposing(mInputMode) ? null : () -> recompose(repeat, false);
+		if (repeat == 0 && backspaceMode.onBackspace() && textSelection.isEmpty()) {
+			final Runnable onLoad = InputModeKind.isRecomposing(backspaceMode) ? null : () -> recompose(repeat, false);
 			getSuggestions(0, null, onLoad);
 		} else {
 			suggestionOps.commitCurrent(false, true);
-			mInputMode.reset();
+			backspaceMode.reset();
 			deleteText(settings.getBackspaceAcceleration() && repeat > 0);
-			updateShiftStateDebounced(null, mInputMode.noSuggestions(), false); // backspace may change the text too much, so no beforeCursor cache for now
+			updateShiftStateDebounced(null, backspaceMode.noSuggestions(), false); // backspace may change the text too much, so no beforeCursor cache for now
 			recompose(repeat, !textSelection.isEmpty());
 		}
 
