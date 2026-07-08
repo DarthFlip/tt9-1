@@ -8,7 +8,6 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 
 import io.github.sspanak.tt9.R;
-import io.github.sspanak.tt9.ui.Vibration;
 
 /**
  * Bottom-left key on the QWERTY layout. Toggles between the letter panel and the symbols
@@ -63,7 +62,10 @@ public class SoftKeyQwertyInputMode extends SoftKeyLF4 {
 			// fall through to the upstream input-mode cycle so the key isn't dead.
 			return super.handleRelease();
 		}
-		vibrate(Vibration.getReleaseVibration());
+		// No release vibrate — BaseClickableKey.handlePress already fires a press haptic on
+		// ACTION_DOWN. Adding a second one here produced a distinct double-buzz on this key
+		// (and only this key) that read as broken. The visual panel flip is enough feedback
+		// that the toggle happened.
 		// Force this key to re-render so the label flips between "?123" and "ABC".
 		render();
 		return true;
