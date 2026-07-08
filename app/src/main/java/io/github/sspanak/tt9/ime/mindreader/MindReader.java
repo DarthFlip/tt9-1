@@ -2,20 +2,20 @@ package io.github.sspanak.tt9.ime.mindreader;
 
 import android.content.Context;
 
+import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.github.sspanak.tt9.db.mindreader.MindReaderStore;
+import io.github.sspanak.tt9.db.words.DictionaryLoader;
 import io.github.sspanak.tt9.hacks.InputType;
 import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
@@ -28,6 +28,7 @@ import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.Text;
 import io.github.sspanak.tt9.util.TextTools;
 import io.github.sspanak.tt9.util.Timer;
+import io.github.sspanak.tt9.util.chars.Characters;
 
 public class MindReader {
 	private static final String LOG_TAG = MindReader.class.getSimpleName();
@@ -134,6 +135,10 @@ public class MindReader {
 	 * user types the first letter of a word.
 	 */
 	public void complete(double loadingId, @NonNull InputMode inputMode, @NonNull String[] surroundingText, int number) {
+		if (settings != null && !settings.getMindReadingComplete()) {
+			return;
+		}
+
 		final String TIMER_TAG = LOG_TAG + Math.random();
 		Timer.start(TIMER_TAG);
 
@@ -154,9 +159,9 @@ public class MindReader {
 			}
 
 			final String[] adjustedSurroundingText = MindReaderContext.handleStartOfSentenceInSurroundingText(language, surroundingText);
-			final ArrayList<String> alternativeLetters = language.getKeyCharacters(number);
+			final ArrayList<String> initialLetters = settings.getOrderedKeyChars(language, number);
 
-			if (alternativeLetters.isEmpty()) {
+			if (initialLetters.isEmpty()) {
 				Timer.stop(TIMER_TAG);
 				return;
 			}
@@ -169,11 +174,11 @@ public class MindReader {
 
 			processContext(inputMode, false);
 
-			final Set<Integer> nextTokens = ngrams.getNextTokens(dictionary, wordContext);
-			ArrayList<String> completions = new ArrayList<>();
-			for (String letter : alternativeLetters) {
-				completions.addAll(dictionary.getAll(nextTokens, letter));
-			}
+			final ArrayList<String> completions = dictionary.getAll(
+				ngrams.getNextTokens(dictionary, wordContext, SettingsStore.MIND_READER_MAX_AMOUNT_UNIGRAMS),
+				initialLetters,
+				SettingsStore.MIND_READER_MAX_UNIGRAM_SUGGESTIONS
+			);
 
 			if (requestVersion != completeRequestCount.get()) {
 				Timer.stop(TIMER_TAG);
@@ -197,6 +202,10 @@ public class MindReader {
 	 * a word.
 	 */
 	public void guess(@NonNull InputMode inputMode, @NonNull String[] surroundingText, @Nullable String lastWord, @NonNull Runnable onComplete) {
+		if (settings != null && !settings.getMindReadingGuess()) {
+			return;
+		}
+
 		final String TIMER_TAG = LOG_TAG + Math.random();
 		Timer.start(TIMER_TAG);
 
@@ -232,7 +241,7 @@ public class MindReader {
 				// don't be too eager to guess what comes after punctuation, emoji etc...
 				guesses = new ArrayList<>();
 			} else {
-				guesses = dictionary.getAll(ngrams.getNextTokens(dictionary, wordContext), null);
+				guesses = dictionary.getAll(ngrams.getNextTokens(dictionary, wordContext), null, Integer.MAX_VALUE);
 			}
 
 			if (requestVersion != guessRequestCount.get()) {
@@ -251,12 +260,70 @@ public class MindReader {
 	}
 
 
+	@MainThread
+	public MindReader seed(@NonNull Context context, @Nullable Language language) {
+		if (isOff() || language == null) {
+			return this;
+		}
+
+		runInThread(() -> {
+			if (!language.equals(wordContext.language)) {
+				Logger.e(LOG_TAG, "Cannot import MindReader factory N-grams. Language is not set. Use setLanguage() first.");
+				return;
+			}
+
+			final String TIMER_TAG = LOG_TAG + Math.random();
+			Timer.start(TIMER_TAG);
+
+			final String sentenceSeparator = Characters.getChar(language, ".");
+			final String prefix = sentenceSeparator != null ? sentenceSeparator : "";
+			final NgramsFile ngramsFile = new NgramsFile(context, context.getAssets(), language);
+
+			if (settings == null || settings.areMindReaderFactoryNgramsImported(language, ngramsFile.getRevision())) {
+				Logger.d(LOG_TAG, "Factory N-grams for " + language.getName() + " are up-to-date. Import stopped after: " + Timer.stop(TIMER_TAG) + " ms");
+				return;
+			}
+
+			boolean imported = false;
+			for (String ngram : ngramsFile.getLines()) {
+				if (DictionaryLoader.isRunning()) {
+					clearContextSync();
+					Logger.d(LOG_TAG, "Aborting MindReader factory N-grams import due to dictionary loading, to prevent invalid results. Stopped after: " + Timer.stop(TIMER_TAG) + " ms");
+					return;
+				}
+
+				if (language.hasSpaceBetweenWords()) {
+					setContextSync(null, language, new String[]{prefix + ngram, ""}, null);
+				} else {
+					wordContext.setTokens(ngram.split(" "));
+				}
+
+				processContext(null, true);
+				imported = true;
+			}
+
+			if (imported) {
+				settings.setMindReaderFactoryNgramsRevision(language, ngramsFile.getRevision());
+			}
+
+			clearContextSync();
+
+			long time = Timer.stop(TIMER_TAG);
+			stats.update(this).setSeedTime(time);
+			Logger.d(LOG_TAG, "Imported " + ngrams.size() + " factory N-grams and " + dictionary.size() + " tokens for " + language.getName() + " in: " + time + " ms");
+		});
+
+		return this;
+	}
+
+
 	/**
 	 * Same as persistSync() but runs asynchronously and can be used from the main thread.
 	 */
 	public void persist() {
 		runInThread(this::persistSync);
 	}
+
 
 	/**
 	 * Save the dictionary and the n-grams for the current language to the database.
@@ -285,6 +352,10 @@ public class MindReader {
 	 * Set and potentially save the current context, without guessing anything.
 	 */
 	public void setContext(@Nullable InputMode inputMode, @NonNull Language language, @NonNull String[] surroundingText, @Nullable String lastWord) {
+		if (isOff()) {
+			return;
+		}
+
 		final String TIMER_TAG = LOG_TAG + Math.random();
 		Timer.start(TIMER_TAG);
 
@@ -306,7 +377,6 @@ public class MindReader {
 				Timer.stop(TIMER_TAG);
 			}
 		});
-
 	}
 
 
@@ -352,7 +422,6 @@ public class MindReader {
 
 			Timer.start(TIMER_TAG);
 
-			// @todo: test database upgrade
 			persistSync();
 			restoreSync(language);
 
@@ -398,7 +467,7 @@ public class MindReader {
 			clearCache();
 		}
 
-		if (surroundingText.length < 2 || !surroundingText[1].isEmpty()) {
+		if (surroundingText.length < 2 || !surroundingText[1].trim().isEmpty()) {
 			wordContext.setText("");
 			return false;
 		} else if (InputModeKind.isABC(inputMode)) {
@@ -444,17 +513,9 @@ public class MindReader {
 
 
 	protected boolean isOff() {
-		final boolean off = settings == null || !settings.getAutoMindReading() || settings.isMainLayoutStealth();
+		final boolean off = settings == null || !settings.getMindReading() || settings.isMainLayoutStealth();
 		stats.setOff(off);
 		return off;
-	}
-
-
-	private void logThreadError(@NonNull Exception e) {
-		StringBuilder errorMsg = new StringBuilder("Error in MindReader task. ");
-		errorMsg.append(e.getMessage()).append("\nStack trace:");
-		Arrays.stream(e.getStackTrace()).forEach(element -> errorMsg.append("\n").append(element.toString()));
-		Logger.e(LOG_TAG, errorMsg.toString());
 	}
 
 
@@ -495,7 +556,7 @@ public class MindReader {
 				try {
 					runnable.run();
 				} catch (Exception e) {
-					logThreadError(e);
+					Logger.ex(LOG_TAG, "Error in MindReader task.", e);
 				}
 			});
 		} catch (RejectedExecutionException e) {

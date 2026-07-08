@@ -150,7 +150,7 @@ lå	156
 læ	103
 ke	76
 le	118
-LG
+LG	74
 kg	134
 ki	92
 li	92
@@ -1193,7 +1193,7 @@ hop	110
 hor	81
 hos	163
 hør	91
-ios	44
+iOS	44
 Hou	93
 gmt	88
 gnu	107
@@ -1214,7 +1214,7 @@ iso	114
 Hsu	44
 gru	84
 gry	53
-HTC
+HTC	84
 Iva	44
 hub	92
 Ive	58
@@ -1496,8 +1496,7 @@ kys	101
 lys	140
 lyt	68
 lyv
-Mac
-mac	87
+Mac	87
 måb
 næb	109
 Mae	84
@@ -1549,7 +1548,7 @@ nav	74
 max	100
 may	90
 Øby	53
-NEC
+NEC	84
 mea	62
 oda	44
 med	200
@@ -1625,6 +1624,7 @@ nks	72
 oks	74
 Øls	53
 øks
+OLX
 Noa	82
 moa	58
 mob	92
@@ -2032,7 +2032,6 @@ tag	123
 tai	67
 vag	83
 væg	116
-TCL
 Tcl	44
 taj	44
 tak	114
@@ -3516,6 +3515,7 @@ Føns	67
 doms	64
 fnøs
 fons	58
+Doov
 dont	58
 dømt	132
 font	92
@@ -4011,6 +4011,7 @@ glan
 glas	121
 glat	121
 Gleb	44
+IKEA	95
 gled	103
 ilde	102
 Glen	91
@@ -11450,8 +11451,7 @@ hobes
 hobet
 Hobie	53
 image	108
-Gmail
-gmail	44
+Gmail	44
 Hobøl	62
 gnask
 Hobro	100
@@ -17894,10 +17894,9 @@ Texel	53
 udyds
 udyrs
 viben	53
-Viber
+Viber	53
 Vibes	58
 tiber	44
-viber	53
 Tibet	103
 Thage	44
 Ticho	44
@@ -20750,8 +20749,7 @@ Amasya	53
 Coates	53
 anatom	87
 amatør	109
-Amazon
-amazon	58
+Amazon	58
 Ancyra	44
 Ameche	44
 andagt	87
@@ -26178,8 +26176,7 @@ Honeys	44
 Imogen	53
 gongen	58
 gonger	44
-Google
-google	70
+Google	70
 inning	84
 googol	77
 ionisk	79
@@ -68192,8 +68189,7 @@ twisten
 twister
 twistes
 twistet
-Twitter
-twitter	62
+Twitter	62
 tykhuds
 tykkams
 tyllede
@@ -74182,8 +74178,7 @@ facadens	76
 facaders
 Facchini	58
 Faaborgs	44
-Facebook
-facebook	77
+Facebook	77
 fabelens
 fabeldyr	90
 facelift	105
@@ -116168,6 +116163,8 @@ duksetype
 fukssvans	62
 Duncannon	53
 Dumbarton	53
+Dumbdroid
+dumbphone
 fundament	111
 fundatsen	87
 fundatser	62
@@ -133110,6 +133107,7 @@ sidemands
 sidemænds
 sideordne
 sidenumre
+Sidephone
 sideriske	73
 sideskibe	86
 sideskibs	62
@@ -416472,8 +416470,3 @@ recipientkvalitetsplanlægningernes
 dobbeltbeskatningsoverenskomsternes
 forureningsbegrænsningsprincipperne
 forureningsbegrænsningsprincippernes
-Doov
-Sidephone
-Dumbdroid
-dumbphone
-OLX

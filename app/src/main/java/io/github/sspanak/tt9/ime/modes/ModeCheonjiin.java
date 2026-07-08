@@ -1,5 +1,7 @@
 package io.github.sspanak.tt9.ime.modes;
 
+import android.content.Context;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -91,8 +93,8 @@ class ModeCheonjiin extends InputMode {
 		if (isEmailMode) {
 			// Asian punctuation can not be used in email addresses, so we need to use the English locale.
 			Language lang = LanguageKind.isCJK(language) ? LanguageCollection.getByLocale("en") : language;
-			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email.get(0), settings.getOrderedKeyChars(lang, 0), true));
-			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email.get(1), settings.getOrderedKeyChars(lang, 1), true));
+			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email, settings.getOrderedKeyChars(lang, 0), true));
+			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email, settings.getOrderedKeyChars(lang, 1), true));
 		} else {
 			setCustomSpecialCharacters();
 		}
@@ -211,7 +213,7 @@ class ModeCheonjiin extends InputMode {
 
 		final int nextChar = nextNumber + '0';
 		final int repeatingDigits = digitSequence.length() > 1 && digitSequence.charAt(digitSequence.length() - 1) == nextChar ? Cheonjiin.getRepeatingEndingDigits(digitSequence) : 0;
-		final int keyCharsCount = nextNumber == 0 ? 2 : language.getKeyCharacters(nextNumber).size();
+		final int keyCharsCount = nextNumber == 0 ? 2 : settings.getOrderedKeyChars(language, nextNumber).size();
 
 		if (repeatingDigits == 0 || keyCharsCount < 2) {
 			return 0;
@@ -224,6 +226,7 @@ class ModeCheonjiin extends InputMode {
 	@Override
 	public void reset() {
 		basicReset();
+		containsEmojis = false;
 		digitSequence = "";
 		previousJamoSequence = "";
 		disablePredictions = false;
@@ -456,5 +459,12 @@ class ModeCheonjiin extends InputMode {
 	@Override
 	public String toString() {
 		return language.getName();
+	}
+
+
+	@NonNull
+	@Override
+	public String toAccessibilityString(@NonNull Context ignored) {
+		return "천지인";
 	}
 }

@@ -74,10 +74,10 @@ public class AppHacks {
 		}
 
 		if (inputType.isWhatsApp() && Text.isGraphic(word)) {
-			textField.setComposingText("");
+			textField.replaceComposingText(word);
+		} else {
+			textField.setComposingText(word);
 		}
-
-		textField.setComposingText(word);
 	}
 
 
@@ -117,9 +117,11 @@ public class AppHacks {
 			return;
 		}
 
-		// if the composing text starts with an emoji, reset to empty before settings new composing text
+		// manually delete and set the composing text for WhatsApp, because it fails to do so with
+		// graphic characters
 		if (inputType.isWhatsApp() && Text.isGraphic(word.toString())) {
-			textField.setComposingText("");
+			textField.replaceComposingText(word.toString());
+			return;
 		}
 
 		// disable composing text for stupid search fields in eBay or Deezer, which restart the connection
@@ -255,6 +257,22 @@ public class AppHacks {
 		}
 
 		return false;
+	}
+
+
+	public int getEditorAction(@NonNull SettingsStore settings) {
+		int action = textField != null ? textField.getAction() : EditorInfo.IME_ACTION_UNSPECIFIED;
+
+		if (
+			action != EditorInfo.IME_ACTION_GO && action != EditorInfo.IME_ACTION_SEARCH
+			&& action != EditorInfo.IME_ACTION_PREVIOUS && action != EditorInfo.IME_ACTION_NEXT
+			&& settings.getSendWithEnterInChatApps()
+			&& inputType != null && inputType.isChatField()
+		) {
+			return EditorInfo.IME_ACTION_SEND;
+		}
+
+		return action;
 	}
 
 

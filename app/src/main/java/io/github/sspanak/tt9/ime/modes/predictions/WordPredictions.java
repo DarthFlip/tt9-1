@@ -166,6 +166,12 @@ public class WordPredictions extends Predictions {
 		} else {
 			suggestMissingWords(generateWordVariations(inputWord), newWords);
 		}
+		// Upstream (v62): for a single ambiguous T9 digit (2..9), also offer the raw key
+		// letters. Additive and deduped by suggestMissingWords, so it's a no-op on the QWERTY
+		// exact-letter path where dbWords/prefix matches already dominate.
+		if (digitSequence.length() == 1 && digitSequence.charAt(0) >= '2' && digitSequence.charAt(0) <= '9') {
+			suggestMissingWords(settings.getOrderedKeyChars(language, digitSequence.charAt(0) - '0'), newWords);
+		}
 		words = insertPunctuationCompletions(newWords);
 		// QWERTY-only: reorder prefix candidates by seeded bigram context. If the user just
 		// committed a word that's a common context anchor (e.g. "the", "happy", "to"), lift

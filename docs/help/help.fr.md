@@ -25,13 +25,6 @@ Le chargement du dictionnaire peut saturer les téléphones bas de gamme. Avec l
 
 Vous pouvez éviter cela en utilisant la version "complète" à la place.
 
-#### Remarques pour Android 13 ou version supérieure
-Par défaut, les notifications pour les applications nouvellement installées sont désactivées. Il est recommandé de les activer. Cela vous permet d’être informé des mises à jour des dictionnaires, et une fois que vous choisissez de les installer, TT9 affichera la progression du chargement. Les nouvelles mises à jour sont publiées au maximum une fois par mois, vous n’avez donc pas à craindre un excès de notifications.
-
-Vous pouvez activer les notifications en allant dans Paramètres → Langues et en activant Notifications de Dictionnaire.
-
-_Si vous choisissez de les garder désactivées, TT9 continuera de fonctionner sans problème, mais vous devrez gérer manuellement les dictionnaires._
-
 ## Paramètres
 Sur l’écran des paramètres, vous pouvez choisir les langues de saisie, configurer les touches de raccourci du pavé numérique, changer l'apparence de l'application ou améliorer la compatibilité avec votre téléphone.
 
@@ -119,9 +112,7 @@ Efface le filtre des suggestions, si appliqué.
 - Lorsque des suggestions sont affichées, saisit la suggestion sélectionnée.
 - Sinon, exécute l’action par défaut de l’application (par exemple, envoyer un message, accéder à une URL, ou insérer un retour à la ligne).
 
-_**Remarque** : Chaque application décide de la fonction à effectuer lorsqu’OK est pressé, et TT9 n'a aucun contrôle sur ce comportement._
-
-_**Remarque 2** : Pour envoyer des messages avec OK dans les applications de messagerie, vous devez activer leur paramètre "Envoyer avec Entrée" ou un paramètre similaire. Si l'application n'a pas de tel paramètre, elle ne supporte probablement pas l'envoi par cette méthode. Dans ce cas, utilisez l'application KeyMapper depuis le [Play Store](https://play.google.com/store/apps/details?id=io.github.sds100.keymapper) ou [F-droid](https://f-droid.org/packages/io.github.sds100.keymapper/). Elle peut détecter les applications de messagerie et simuler une touche sur le bouton d'envoi de message. Consultez le [guide de démarrage rapide](https://docs.keymapper.club/quick-start/) pour plus d'informations._
+_**Remarque** : Pour envoyer des messages avec la touche OK dans les applications de messagerie, accédez à Paramètres → Clavier, faites défiler jusqu’à la section « Compatibilité » et activez l’option « Envoyer les messages avec OK »._
 
 #### Touche 0 :
 - **En mode 123 :**
@@ -163,6 +154,23 @@ _**Remarque 2** : Pour envoyer des messages avec OK dans les applications de mes
 #### Touche Ajouter un Mot :
 Ajoute un nouveau mot au dictionnaire pour la langue actuelle.
 
+#### Touche Modifier un Mot :
+Modifie le mot à l'endroit où se trouve le curseur de texte.
+
+En mode modification, vous avez les options suivantes :
+- **Appuyez sur une touche 1-9 :** Remplace la lettre actuellement sélectionnée par une autre.
+- **Maintenez la touche Gauche/Droite :** Passe à la lettre précédente/suivante.
+- **Appuyez sur la touche OK :** Passe à la lettre suivante. S'il n'y a plus de lettres, la modification se termine, le mot est enregistré et un espace est ajouté automatiquement après (si l'option correspondante est activée).
+- **Appuyez sur la touche Retour Arrière :** Supprime la lettre actuelle.
+- **Appuyez sur la touche Filtrer :** Duplique la lettre actuelle. Par exemple, si la lettre actuelle est "a", appuyer sur Filtrer la transforme en "aa".
+- **Appuyez sur la touche 0 :** Termine la modification et enregistre le mot.
+
+**Appareils tactiles :**
+- **Touchez une lettre dans la liste des suggestions :** Équivaut à sélectionner la lettre puis appuyer sur OK.
+- **Touchez et maintenez la dernière lettre du mot :** Sélectionne la lettre, termine la modification, mais n'ajoute pas automatiquement d'espace après.
+
+Vous pouvez aussi utiliser le mode modification pour saisir de nouveaux mots. Par exemple, si vous voulez taper "Anakin", qui n'existe pas dans le dictionnaire, appuyez simplement sur les touches correspondantes : 2-6-2-5-4-6. Cela produira d'abord un mot incohérent que vous pourrez facilement transformer en "Anakin" en remplaçant les lettres par les bonnes.
+
 #### Touche Retour Arrière (Retour, Suppr, ou Retour Arrière) :
 Supprime du texte.
 
@@ -186,6 +194,9 @@ _Dans les champs numériques uniquement, changer de mode est impossible. Dans ce
 #### Touche Outils du presse-papiers :
 Affiche le panneau avec des outils du presse-papiers, permettant de sélectionner, couper, copier et coller du texte. Vous pouvez fermer le panneau en appuyant à nouveau sur la touche "✱" ou, dans la plupart des applications, en appuyant sur le bouton Retour. Détails disponibles [ci-dessous](#outils-de-presse-papiers).
 
+#### Touche Masquer le Clavier :
+Masque le clavier. Pour l'afficher à nouveau, commencez simplement à taper ou touchez un champ de texte ou de nombre.
+
 #### Touche Langue Suivante (par défaut : appui long sur #) :
 Changer la langue de saisie lorsque plusieurs langues ont été activées dans les paramètres.
 
@@ -196,8 +207,16 @@ Ouvre la boîte de dialogue de changement de clavier d'Android, où vous pouvez 
 - **Lors de la saisie de texte** : Alterne entre majuscules et minuscules.
 - **Lors de la saisie de caractères spéciaux avec la touche 0** : Affiche le groupe de caractères suivant.
 
+#### Touche Afficher les émojis :
+_Mode Prédictif uniquement._
+
+Affiche le panneau des émojis. C'est un raccourci pour appuyer plusieurs fois sur la touche 1 en mode Prédictif.
+
 #### Touche Afficher les Paramètres :
 Ouvre l’écran de configuration des Paramètres, où vous pouvez choisir les langues pour la saisie, configurer les raccourcis clavier, modifier l’apparence de l’application, ou améliorer la compatibilité avec votre téléphone.
+
+#### Touche Basculer le Mode Prédictif :
+Bascule entre le mode Prédictif et le mode ABC. En pratique, cela revient à activer ou désactiver le mode Prédictif.
 
 #### Touche Annuler :
 Annule la dernière action. Équivaut à appuyer sur Ctrl+Z sur un ordinateur ou Cmd+Z sur un Mac.
@@ -218,13 +237,14 @@ Affiche une liste de toutes les commandes (ou fonctions).
 De nombreux téléphones ont seulement deux ou trois touches "libres" pouvant être utilisées comme raccourcis. Mais, Traditional T9 a beaucoup plus de fonctions, donc il est impossible de toutes les avoir sur le clavier. La Palette de Commandes résout ce problème en permettant d’invoquer des fonctions supplémentaires via des combinaisons de touches.
 
 Voici une liste des commandes possibles :
-- **Afficher l’Écran des Paramètres (Combo par défaut : appui long sur ✱, touche 1).** Identique à l’appui sur [Afficher les Paramètres](#touche-afficher-les-paramètres).
-- **Ajouter un Mot (Combo par défaut : appui long sur ✱, touche 2).** Identique à l’appui sur [Ajouter un Mot](#touche-ajouter-un-mot).
+- **Ajouter un Mot (Combo par défaut : appui long sur ✱, touche 1).** Identique à l’appui sur [Ajouter un Mot](#touche-ajouter-un-mot).
+- **Modifier un Mot (Combo par défaut : appui long sur ✱, touche 2).** Identique à l’appui sur [Modifier un Mot](#touche-modifier-un-mot).
 - **Saisie Vocale (Combo par défaut : appui long sur ✱, touche 3).** Identique à l’appui sur [Saisie Vocale](#touche-saisie-vocale).
 - **Annuler (Combo par défaut : appui long sur ✱, touche 4).** Identique à l’appui sur [Touche Annuler](#touche-annuler).
 - **Outils du presse-papiers (Combo par défaut : appui long sur ✱, touche 5).** Identique à l’appui sur [Outils du presse-papiers](#touche-outils-du-presse-papiers).
 - **Rétablir (Combo par défaut : appui long sur ✱, touche 6).** Identique à l’appui sur [Touche Rétablir](#touche-rétablir).
 - **Sélectionner un Clavier Différent (Combo par défaut : appui long sur ✱, touche 8).** Identique à l’appui sur [Sélectionner le Clavier](#touche-sélectionner-le-clavier).
+- **Afficher l’Écran des Paramètres (Combo par défaut : appui long sur ✱, touche 9).** Identique à l’appui sur [Afficher les Paramètres](#touche-afficher-les-paramètres).
 
 _Cette touche ne fait rien lorsque l'Affichage de l'Écran est réglé sur "Pavé Virtuel", car toutes les touches pour toutes les fonctions possibles sont déjà disponibles à l’écran._
 
@@ -412,8 +432,6 @@ Pour atténuer ce problème, allez dans Paramètres → Apparence et activez « 
 
 ### Problèmes généraux sur les téléphones Xiaomi
 Xiaomi a introduit plusieurs autorisations non standard sur ses téléphones, ce qui empêche le clavier virtuel de Traditional T9 de fonctionner correctement. Plus précisément, les touches « Afficher les paramètres » et « Ajouter un mot » peuvent ne pas fonctionner. Pour corriger cela, vous devez accorder les autorisations « Afficher les fenêtres contextuelles » et « Afficher les fenêtres contextuelles en arrière-plan » à TT9 dans les paramètres de votre téléphone. [Ce guide](https://parental-control.flashget.com/how-to-enable-display-pop-up-windows-while-running-in-the-background-on-flashget-kids-on-xiaomi) pour une autre application explique comment le faire.
-
-Il est également fortement recommandé d'accorder l'autorisation « Notification permanente ». Cela est similaire à l'autorisation de « Notifications » introduite dans Android 13. Voir [ci-dessus](#remarques-pour-android-13-ou-version-supérieure) pour plus d'informations sur son importance.
 
 _Les problèmes Xiaomi ont été discutés dans [ce problème GitHub](https://github.com/sspanak/tt9/issues/490)._
 

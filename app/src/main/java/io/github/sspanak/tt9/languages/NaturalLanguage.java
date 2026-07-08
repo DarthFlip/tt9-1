@@ -9,12 +9,15 @@ import java.util.Locale;
 import java.util.Map;
 
 import io.github.sspanak.tt9.languages.exceptions.InvalidLanguageCharactersException;
+import io.github.sspanak.tt9.preferences.screens.keychars.PreferenceChars2to9;
+import io.github.sspanak.tt9.preferences.settings.SettingsStore;
 import io.github.sspanak.tt9.util.Text;
 import io.github.sspanak.tt9.util.chars.Characters;
 
 
 public class NaturalLanguage extends TranscribedLanguage {
 	protected final ArrayList<ArrayList<String>> layout = new ArrayList<>();
+	protected ArrayList<ArrayList<String>> factoryLayout = new ArrayList<>();
 	private final HashMap<Character, String> characterKeyMap = new HashMap<>();
 	@NonNull private HashMap<Integer, String> numerals = new HashMap<>();
 
@@ -36,6 +39,7 @@ public class NaturalLanguage extends TranscribedLanguage {
 		lang.iconT9 = definition.iconT9;
 		lang.isTranscribed = definition.isTranscribed;
 		lang.name = definition.name.isEmpty() ? lang.name : definition.name;
+		lang.ngramsFile = definition.getNgramsFile();
 		lang.numerals = definition.numerals;
 		lang.setLocale(definition);
 		lang.setLayout(definition);
@@ -49,18 +53,7 @@ public class NaturalLanguage extends TranscribedLanguage {
 			throw new Exception("Invalid definition. Locale cannot be empty.");
 		}
 
-		if (definition.locale.equals("en")) {
-			locale = Locale.ENGLISH;
-		} else {
-			String[] parts = definition.locale.split("-", 2);
-			if (parts.length == 2) {
-				locale = new Locale(parts[0], parts[1]);
-			} else if (parts.length == 1) {
-				locale = new Locale(parts[0]);
-			} else {
-				throw new Exception("Unrecognized locale format: '" + definition.locale + "'.");
-			}
-		}
+		locale = definition.locale.equals("en") ? Locale.ENGLISH : Locale.forLanguageTag(definition.locale);
 	}
 
 
@@ -71,6 +64,8 @@ public class NaturalLanguage extends TranscribedLanguage {
 					key > 1 ? definition.layout.get(key) : generateSpecialChars(definition.layout.get(key))
 				);
 		}
+
+		factoryLayout = new ArrayList<>(layout);
 
 		generateCharacterKeyMap();
 	}
@@ -270,5 +265,36 @@ public class NaturalLanguage extends TranscribedLanguage {
 		}
 
 		return true;
+	}
+
+
+	public void updateKeyCharacters(int key, @NonNull String newCharacters, boolean updateReverseMapping) {
+		if (key < 0 || key >= layout.size()) {
+			return;
+		}
+
+		final ArrayList<String> newKeyCharacters = new ArrayList<>(factoryLayout.get(key));
+		for (int i = 0; i < newCharacters.length(); i++) {
+			newKeyCharacters.add(String.valueOf(newCharacters.charAt(i)));
+		}
+
+		layout.set(key, newKeyCharacters);
+
+		if (updateReverseMapping) {
+			generateCharacterKeyMap();
+		}
+	}
+
+
+	public void updateKeyCharacters(@NonNull SettingsStore settings) {
+		for (int key = 2; key <= 9 && key < layout.size(); key++) {
+			updateKeyCharacters(
+				key,
+				settings.getCharsExtra(this, PreferenceChars2to9.NAME_PREFIX + key),
+				false
+			);
+		}
+
+		generateCharacterKeyMap();
 	}
 }

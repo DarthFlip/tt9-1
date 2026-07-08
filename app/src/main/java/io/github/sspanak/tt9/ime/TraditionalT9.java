@@ -1,6 +1,5 @@
 package io.github.sspanak.tt9.ime;
 
-import android.Manifest;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,7 +18,6 @@ import io.github.sspanak.tt9.ime.modes.InputModeKind;
 import io.github.sspanak.tt9.languages.LanguageCollection;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
 import io.github.sspanak.tt9.ui.UI;
-import io.github.sspanak.tt9.ui.dialogs.RequestPermissionDialog;
 import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.SupremeExecutor;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
@@ -58,7 +56,7 @@ public class TraditionalT9 extends PremiumHandler {
 	public void onComputeInsets(Insets outInsets) {
 		super.onComputeInsets(outInsets);
 		if (settings.clearInsets() && shouldBeVisible()) {
-			// otherwise the MainView wouldn't show up on Sonim XP3900
+			// otherwise the MainView wouldn't show up on Sonim XP3900,
 			// or it expands the application window past the edge of the screen
 			outInsets.contentTopInsets = 0;
 		}
@@ -101,7 +99,23 @@ public class TraditionalT9 extends PremiumHandler {
 	@Override
 	public void onFinishInputView(boolean finishingInput) {
 		super.onFinishInputView(finishingInput);
-		onFinishTyping();
+		onFinishTyping(finishingInput);
+	}
+
+
+	/**
+	 * Collapse the on-screen QWERTY panel when switching input modes via the # hotkey. Ported
+	 * from the former HotkeyHandler.onKeyNextInputMode (removed when upstream moved hotkey
+	 * dispatch into Command objects): pressing # on the physical keypad gets the on-screen panel
+	 * out of the way so the T9 keypad workflow takes over. No-op unless the QWERTY layout is
+	 * active and the panel is currently expanded. Re-expand via the tap-to-expand gesture on the
+	 * collapsed strip (MainLayoutQwerty.wireTapToExpand). Invoked only from the hotkey path
+	 * (CmdNextInputMode.runFromHotkey), so tapping the mode soft-key does not collapse the panel.
+	 */
+	public void collapseQwertyKeysForModeSwitch() {
+		if (settings != null && settings.isMainLayoutQwerty() && mainView != null && !mainView.isKeysCollapsed()) {
+			mainView.setKeysCollapsed(true);
+		}
 	}
 
 
@@ -210,16 +224,13 @@ public class TraditionalT9 extends PremiumHandler {
 			onText(onAfterStartText.toString(), false);
 			onAfterStartText.setLength(0);
 		}
-
-		askForNotifications();
 	}
 
 
 	@Override
 	protected void onStop() {
 		stopVoiceInput();
-		onFinishTyping();
-		suggestionOps.clear();
+		onFinishTyping(true);
 		statusBar.setText(mInputMode);
 
 		if (isInputViewShown()) {
@@ -240,18 +251,10 @@ public class TraditionalT9 extends PremiumHandler {
 
 
 	@Override
-	protected void onFinishTyping() {
-		super.onFinishTyping();
+	protected void onFinishTyping(boolean willExitInput) {
+		super.onFinishTyping(willExitInput);
 		getDisplayTextCase();
 		setStatusIcon(mInputMode, mLanguage);
-	}
-
-
-	private void askForNotifications() {
-		if (settings.shouldAskForNotifications() && !InputModeKind.isPassthrough(mInputMode) && !inputType.isUs()) {
-			settings.setNotificationsApproved(false);
-			RequestPermissionDialog.show(this, Manifest.permission.POST_NOTIFICATIONS);
-		}
 	}
 
 

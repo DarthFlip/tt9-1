@@ -4,6 +4,7 @@ import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.KeyEvent;
 import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
 
@@ -12,6 +13,9 @@ import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 
+import io.github.sspanak.tt9.commands.CmdSuggestionNext;
+import io.github.sspanak.tt9.commands.CmdSuggestionPrevious;
+import io.github.sspanak.tt9.commands.Command;
 import io.github.sspanak.tt9.db.words.DictionaryLoader;
 import io.github.sspanak.tt9.hacks.InputType;
 import io.github.sspanak.tt9.ime.helpers.CursorOps;
@@ -27,6 +31,7 @@ import io.github.sspanak.tt9.ime.swipe.Tt9WordProvider;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageCollection;
 import io.github.sspanak.tt9.languages.LanguageKind;
+import io.github.sspanak.tt9.languages.NaturalLanguage;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
 import io.github.sspanak.tt9.util.Text;
 import io.github.sspanak.tt9.util.chars.Characters;
@@ -36,7 +41,10 @@ public abstract class TypingHandler extends KeyPadHandler {
 	@NonNull protected InputType inputType = new InputType(null, null);
 	@NonNull protected TextField textField = new TextField(null, null, null);
 	@NonNull protected TextSelection textSelection = new TextSelection(null, null);
-	@NonNull protected SuggestionOps suggestionOps = new SuggestionOps(null, null, null, null, null, null, null, null, null);
+	@NonNull protected SuggestionOps suggestionOps = new SuggestionOps(null, null, null, null, null, null, null, null, null, null);
+
+	@NonNull protected CmdSuggestionNext cmdNextSuggestion = new CmdSuggestionNext();
+	@NonNull protected CmdSuggestionPrevious cmdPreviousSuggestion = new CmdSuggestionPrevious();
 
 	@Nullable private Handler shiftStateDebounceHandler;
 
@@ -137,11 +145,11 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 
 	protected void createSuggestionBar() {
-		suggestionOps = new SuggestionOps(this, settings, mainView, appHacks, inputType, textField, statusBar, this::onAcceptSuggestionsDelayed, this::onOK);
+		suggestionOps = new SuggestionOps(this, settings, mainView, appHacks, inputType, textField, statusBar, this::onAcceptSuggestionsDelayed, this::onOK, () -> onOK(KeyEvent.KEYCODE_UNKNOWN));
 	}
 
 
-	protected boolean shouldBeOff() {
+	public boolean shouldBeOff() {
 		return getCurrentInputConnection() == null || InputModeKind.isPassthrough(mInputMode);
 	}
 
@@ -154,6 +162,7 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 
 	protected void cleanUp() {
+		super.cleanUp();
 		InputConnectionAsync.destroy();
 		mindReader.destroy();
 	}
@@ -173,9 +182,11 @@ public abstract class TypingHandler extends KeyPadHandler {
 		// ignore multiple calls for the same field, caused by requestShowSelf() -> showWindow(),
 		// or weirdly functioning apps, such as the Qin SMS app
 		if (restart && !languageChanged && appHacks.isRestartForbidden() && mInputMode.getId() == determineInputModeId()) {
+			super.onStart(field, restarting);
 			return false;
 		}
-		settings.setDefaultCharOrder(mLanguage, false);
+		settings.setDefaultChars(mLanguage, false);
+		((NaturalLanguage) mLanguage).updateKeyCharacters(settings);
 		resetKeyRepeat();
 		mInputMode = determineInputMode();
 		// Allocate a separate Predictive InputMode for the on-screen QWERTY pipeline. This
@@ -212,9 +223,10 @@ public abstract class TypingHandler extends KeyPadHandler {
 		updateShiftState(surroundingText[0], false, false);
 		mindReader
 			.setLanguage(mLanguage)
+			.seed(getFinalContext(), mLanguage)
 			.setContext(mInputMode, mLanguage, surroundingText, null);
 
-		return true;
+		return super.onStart(field, restarting);
 	}
 
 
@@ -242,15 +254,20 @@ public abstract class TypingHandler extends KeyPadHandler {
 	}
 
 
-	protected void onFinishTyping() {
+	protected void onFinishTyping(boolean willExitInput) {
 		if (shiftStateDebounceHandler != null) {
 			shiftStateDebounceHandler.removeCallbacksAndMessages(null);
 			shiftStateDebounceHandler = null;
 		}
 		suggestionOps.cancelDelayedAccept();
-		mInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
 		composingWord.clear();
-		setInputField(null);
+
+		if (willExitInput) {
+			mInputMode = InputMode.getInstance(null, null, null, null, InputMode.MODE_PASSTHROUGH);
+			setInputField(null);
+		} else {
+			mInputMode.reset();
+		}
 	}
 
 
@@ -624,8 +641,8 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 	@Override
 	public boolean onBackspace(int repeat) {
-		// Dialer fields seem to handle backspace on their own and we must ignore it,
-		// otherwise, keyDown race condition occur for all keys.
+		// Dialer fields seem to handle backspace on their own, and we must ignore it,
+		// otherwise, a keyDown race condition occurs for all keys.
 		if (InputModeKind.isPassthrough(mInputMode)) {
 			return false;
 		}
@@ -752,7 +769,8 @@ public abstract class TypingHandler extends KeyPadHandler {
 		}
 
 		if (mInputMode.shouldSelectNextSuggestion() && !mInputMode.noSuggestions()) {
-			scrollSuggestions(false);
+			final Command scroll = LanguageKind.isRTL(mLanguage) ? cmdPreviousSuggestion : cmdNextSuggestion;
+			scroll.run(getFinalContext());
 			suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout());
 		} else {
 			final double loadingId = Math.random();
@@ -944,7 +962,7 @@ public abstract class TypingHandler extends KeyPadHandler {
 	/**
 	 * determineLanguage
 	 * Restore the last language or auto-select a more appropriate one, if the application hints so.
-	 * In case the settings are not valid, we will fallback to the default language.
+	 * In case the settings are not valid, we will fall back to the default language.
 	 */
 	private boolean determineLanguage() {
 		mEnabledLanguages = settings.getEnabledLanguageIds();
@@ -994,7 +1012,7 @@ public abstract class TypingHandler extends KeyPadHandler {
 	 * We do not want to handle any of these, hence we pass through all input to the system.
 	 */
 	protected int determineInputModeId() {
-		if (!inputType.isValid() || (inputType.isLimited() && !inputType.isTeams() && !inputType.isTermux())) {
+		if (!inputType.isValid() || (inputType.isLimited() && !inputType.isTeamsInitial() && !inputType.isTermux())) {
 			return InputMode.MODE_PASSTHROUGH;
 		}
 

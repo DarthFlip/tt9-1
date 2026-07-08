@@ -5,7 +5,6 @@ import androidx.annotation.NonNull;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
-import java.util.Set;
 
 import io.github.sspanak.tt9.preferences.settings.SettingsStatic;
 
@@ -62,7 +61,7 @@ public class MindReaderNgramList {
 
 		// keep only the most recent N-gram variations for a given context,
 		// to prevent the list from growing indefinitely and to keep the predictions relevant
-		removeOldestVariations(ngram, MAX_NGRAM_VARIATIONS[Math.min(MAX_NGRAM_VARIATIONS.length - 1, ngram.size - 2)]);
+		removeOldestVariations(ngram);
 	}
 
 
@@ -130,10 +129,25 @@ public class MindReaderNgramList {
 
 
 	@NonNull
-	Set<Integer> getNextTokens(@NonNull MindReaderDictionary dictionary, @NonNull MindReaderContext current) {
+	LinkedHashSet<Integer> getNextTokens(@NonNull MindReaderDictionary dictionary, @NonNull MindReaderContext current) {
 		final MindReaderNgram currentNgram = current.toEndingNgram(dictionary);
 		final int maxIndex = Math.min(MAX_NGRAM_VARIATIONS.length - 1, Math.max(currentNgram.size - 2, 0));
-		final Set<Integer> results = new LinkedHashSet<>(MAX_NGRAM_VARIATIONS[maxIndex]);
+		return getNextTokens(dictionary, current, MAX_NGRAM_VARIATIONS[maxIndex]);
+	}
+
+
+	@NonNull
+	LinkedHashSet<Integer> getNextTokens(@NonNull MindReaderDictionary dictionary, @NonNull MindReaderContext current, int limit) {
+		if (limit <= 0) {
+			return new LinkedHashSet<>();
+		}
+
+		final MindReaderNgram currentNgram = current.toEndingNgram(dictionary);
+		final LinkedHashSet<Integer> results = new LinkedHashSet<>(limit);
+
+		if (!currentNgram.isValid) {
+			return results;
+		}
 
 		// We want to show more recent first, so we loop from the end to the beginning.
 		for (int i = size - 1; i >= 0; i--) {
@@ -141,7 +155,7 @@ public class MindReaderNgramList {
 				results.add(next[i]);
 			}
 
-			if (results.size() >= MAX_NGRAM_VARIATIONS[maxIndex]) {
+			if (results.size() >= limit) {
 				break;
 			}
 		}
@@ -195,7 +209,15 @@ public class MindReaderNgramList {
 	}
 
 
-	private void removeOldestVariations(@NonNull MindReaderNgram ngram, int maxVariations) {
+	private void removeOldestVariations(@NonNull MindReaderNgram ngram) {
+		int maxVariations = MAX_NGRAM_VARIATIONS[0];
+
+		if (ngram.isUnigram) {
+			maxVariations = SettingsStatic.MIND_READER_MAX_AMOUNT_UNIGRAMS;
+		} else if (ngram.size >= 2) {
+			maxVariations = MAX_NGRAM_VARIATIONS[Math.min(MAX_NGRAM_VARIATIONS.length - 1, ngram.size - 2)];
+		}
+
 		for (int i = size - 1, variations = 0; i >= 0; i--) {
 			if (before[i] == ngram.before) {
 				if (variations < maxVariations) {

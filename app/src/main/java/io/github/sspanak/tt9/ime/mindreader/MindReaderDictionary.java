@@ -7,8 +7,8 @@ import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Set;
 
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageKind;
@@ -202,25 +202,39 @@ public class MindReaderDictionary {
 
 
 	@NonNull
-	ArrayList<String> getAll(@NonNull Set<Integer> tokenIds, @Nullable String startsWith) {
-		final ArrayList<String> results = new ArrayList<>(tokenIds.size());
-
-		String prefix = startsWith;
-		if (prefix != null && locale != null) {
-			prefix = prefix.toLowerCase(locale);
+	ArrayList<String> getAll(@NonNull LinkedHashSet<Integer> tokenIds, @Nullable ArrayList<String> startsWith, int limit) {
+		if (limit <= 0 || tokenIds.isEmpty()) {
+			return new ArrayList<>();
 		}
 
+		if (startsWith != null && locale != null) {
+			startsWith.replaceAll(s -> s.toLowerCase(locale));
+		}
+
+		final ArrayList<String> results = new ArrayList<>(Math.min(tokenIds.size(), limit));
+
+		int resultsCount = 0;
 		for (int tokenId : tokenIds) {
 			if (!isWord(tokenId) || tokenId >= size) {
 				continue;
 			}
 
-			if (prefix == null) {
+			if (startsWith == null || startsWith.isEmpty()) {
 				results.add(tokens[tokenId]);
+				resultsCount++;
+				if (resultsCount >= limit) {
+					return results;
+				}
 			} else {
 				final String tokenLower = locale != null ? tokens[tokenId].toLowerCase(locale) : tokens[tokenId];
-				if (tokenLower.startsWith(prefix)) {
-					results.add(tokens[tokenId]);
+				for (String prefix : startsWith) {
+					if (tokenLower.startsWith(prefix)) {
+						results.add(tokens[tokenId]);
+						resultsCount++;
+					}
+					if (resultsCount >= limit) {
+						return results;
+					}
 				}
 			}
 		}

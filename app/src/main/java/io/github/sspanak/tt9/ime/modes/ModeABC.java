@@ -1,5 +1,7 @@
 package io.github.sspanak.tt9.ime.modes;
 
+import android.content.Context;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -28,6 +30,7 @@ class ModeABC extends InputMode {
 	private final int textFieldTextCase;
 
 	@Override public int getId() { return MODE_ABC; }
+	@Override @NonNull public String toAccessibilityString(@NonNull Context c) { return language.getName() + ", " + language.getAbcString(); }
 
 
 	protected ModeABC(@NonNull SettingsStore settings, @NonNull Language lang, @Nullable InputType inputType) {
@@ -179,8 +182,8 @@ class ModeABC extends InputMode {
 		if (isEmailMode) {
 			// Asian punctuation can not be used in email addresses, so we need to use the English locale.
 			Language lang = LanguageKind.isCJK(language) ? LanguageCollection.getByLocale("en") : language;
-			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email.get(0), settings.getOrderedKeyChars(lang, 0), true));
-			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email.get(1), settings.getOrderedKeyChars(lang, 1), true));
+			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email, settings.getOrderedKeyChars(lang, 0), true));
+			KEY_CHARACTERS.add(Characters.orderByList(Characters.Email, settings.getOrderedKeyChars(lang, 1), true));
 		}
 
 		refreshSuggestions();

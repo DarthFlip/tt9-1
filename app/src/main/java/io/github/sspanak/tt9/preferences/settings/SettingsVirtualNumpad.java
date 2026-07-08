@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.TypedValue;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.HashMap;
 
@@ -14,6 +15,9 @@ import io.github.sspanak.tt9.preferences.screens.appearance.DropDownNumpadKeyFon
 import io.github.sspanak.tt9.preferences.screens.appearance.DropDownNumpadShape;
 import io.github.sspanak.tt9.preferences.screens.appearance.SwitchLeftRightArrows;
 import io.github.sspanak.tt9.preferences.screens.appearance.SwitchShowArrowsUpDown;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownKeyHeightUnfolded;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownNumpadFnKeyScaleUnfolded;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownNumpadKeyFontSizeUnfolded;
 import io.github.sspanak.tt9.preferences.screens.fnKeyOrder.FnKeyOrderValidator;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
@@ -34,6 +38,13 @@ public class SettingsVirtualNumpad extends SettingsCustomKeyActions {
 		put('6', R.id.soft_key_wrapper_6);
 		put('7', R.id.soft_key_wrapper_7);
 		put('8', R.id.soft_key_wrapper_8);
+		put('C', R.id.soft_key_wrapper_c);
+		put('E', R.id.soft_key_wrapper_e);
+		put('L', R.id.soft_key_wrapper_l);
+		put('N', R.id.soft_key_wrapper_n);
+		put('R', R.id.soft_key_wrapper_r);
+		put('T', R.id.soft_key_wrapper_t);
+		put('V', R.id.soft_key_wrapper_v);
 	}};
 
 	SettingsVirtualNumpad(Context context) {
@@ -68,8 +79,8 @@ public class SettingsVirtualNumpad extends SettingsCustomKeyActions {
 		FnKeyOrderValidator validator = new FnKeyOrderValidator(left, right);
 		if (validator.validate()) {
 			getPrefsEditor()
-				.putString("pref_rfn_key_order", right)
-				.putString("pref_lfn_key_order", left)
+				.putString("pref_rfn_key_order", right.toUpperCase())
+				.putString("pref_lfn_key_order", left.toUpperCase())
 				.apply();
 		}
 
@@ -80,8 +91,11 @@ public class SettingsVirtualNumpad extends SettingsCustomKeyActions {
 		return context.getResources().getDimensionPixelSize(R.dimen.numpad_key_height);
 	}
 
-	public int getNumpadKeyHeight() {
-		return getStringifiedInt(DropDownKeyHeight.NAME, getNumpadKeyDefaultHeight());
+	public int getNumpadKeyHeight(@Nullable Boolean folded) {
+		return getStringifiedInt(
+			getFoldedAuto(folded) ? DropDownKeyHeight.NAME : DropDownKeyHeightUnfolded.NAME,
+			getNumpadKeyDefaultHeight()
+		);
 	}
 
 	public float getNumpadFnKeyDefaultScale() {
@@ -95,12 +109,16 @@ public class SettingsVirtualNumpad extends SettingsCustomKeyActions {
 		}
 	}
 
-	public float getNumpadFnKeyScale() {
-		return getStringifiedFloat(DropDownNumpadFnKeyScale.NAME, getNumpadFnKeyDefaultScale());
+	public float getNumpadFnKeyScale(@Nullable Boolean folded) {
+		return getStringifiedFloat(
+			getFoldedAuto(folded) ? DropDownNumpadFnKeyScale.NAME : DropDownNumpadFnKeyScaleUnfolded.NAME,
+			getNumpadFnKeyDefaultScale()
+		);
 	}
 
-	public int getNumpadKeyFontSizePercent() {
-		return isMainLayoutLarge() ? getStringifiedInt(DropDownNumpadKeyFontSize.NAME, 100) : 100;
+	public int getNumpadKeyFontSizePercent(@Nullable Boolean folded) {
+		final String key = getFoldedAuto(folded) ? DropDownNumpadKeyFontSize.NAME : DropDownNumpadKeyFontSizeUnfolded.NAME;
+		return isMainLayoutLarge() ? getStringifiedInt(key, 100) : 100;
 	}
 
 	public int getNumpadShape() {

@@ -5,7 +5,6 @@ import android.util.AttributeSet;
 
 import io.github.sspanak.tt9.commands.CmdBack;
 import io.github.sspanak.tt9.commands.CmdEditText;
-import io.github.sspanak.tt9.commands.CmdTxtCut;
 import io.github.sspanak.tt9.commands.CmdVoiceInput;
 
 public class SoftKeyRF3 extends BaseSoftKeyWithIcons {
@@ -52,6 +51,26 @@ public class SoftKeyRF3 extends BaseSoftKeyWithIcons {
 
 
 	@Override
+	protected String getAccessibilityText() {
+		if (tt9 == null) {
+			return null;
+		}
+
+		if (editText.isActive(tt9)) {
+			return back.getName(tt9);
+		}
+
+		if (voiceInput.isActive(tt9) || (editText.isMissing(tt9) && voiceInput.isAvailable(tt9))) {
+			return voiceInput.getName(tt9);
+		} else if (editText.isAvailable(tt9) && !voiceInput.isAvailable(tt9)) {
+			return editText.getName(tt9);
+		}
+
+		return editText.getName(tt9) + ", " + voiceInput.getName(tt9);
+	}
+
+
+	@Override
 	protected int getCentralIcon() {
 		if (editText.isActive(tt9)) {
 			return back.getIcon();
@@ -65,7 +84,7 @@ public class SoftKeyRF3 extends BaseSoftKeyWithIcons {
 			return voiceInput.getIcon();
 		}
 
-		return new CmdTxtCut().getIcon();
+		return editText.getIcon();
 	}
 
 

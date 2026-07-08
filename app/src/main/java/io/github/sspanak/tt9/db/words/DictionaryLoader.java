@@ -1,10 +1,10 @@
 package io.github.sspanak.tt9.db.words;
 
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.inputmethodservice.InputMethodService;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -25,6 +25,7 @@ import io.github.sspanak.tt9.db.sqlite.Tables;
 import io.github.sspanak.tt9.db.sqlite.WordDbOpener;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageKind;
+import io.github.sspanak.tt9.languages.NaturalLanguage;
 import io.github.sspanak.tt9.languages.exceptions.InvalidLanguageCharactersException;
 import io.github.sspanak.tt9.languages.exceptions.InvalidLanguageException;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
@@ -32,26 +33,25 @@ import io.github.sspanak.tt9.ui.notifications.DictionaryLoadingBar;
 import io.github.sspanak.tt9.ui.notifications.DictionaryUpdateNotification;
 import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.Timer;
+import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
 public class DictionaryLoader {
 	private static final String LOG_TAG = "DictionaryLoader";
-	private static DictionaryLoader self;
+	@Nullable private static DictionaryLoader self;
 	private static final String IMPORT_TIMER = "importTime";
 
-	private final AssetManager assets;
-	private final SQLiteOpener sqlite;
-	private final InsertOps insertOps = new InsertOps();
+	@NonNull private final SQLiteOpener sqlite;
+	@NonNull private final InsertOps insertOps = new InsertOps();
 
 	@NonNull private final DictionaryLoadingBar loadingBar;
-	private Thread loadThread;
+	@Nullable private Thread loadThread;
 
-	private static final HashMap<Integer, Long> lastAutoLoadAttemptTime = new HashMap<>();
+	@NonNull private static final HashMap<Integer, Long> lastAutoLoadAttemptTime = new HashMap<>();
 	private static boolean skipNextAutoLoad = false;
 	private int currentFile = 0;
 
 
 	private DictionaryLoader(Context context) {
-		assets = context.getAssets();
 		loadingBar = DictionaryLoadingBar.getInstance(context);
 		sqlite = WordDbOpener.getInstance(context);
 	}
@@ -65,7 +65,7 @@ public class DictionaryLoader {
 	}
 
 
-	public static boolean load(Context context, ArrayList<Language> languages) {
+	public static boolean load(@NonNull Context context, @NonNull SettingsStore settings, @Nullable ArrayList<Language> languages) {
 		if (isRunning()) {
 			return false;
 		}
@@ -80,7 +80,7 @@ public class DictionaryLoader {
 		}
 		self.loadThread = new Thread(() -> {
 			try {
-				self.loadSync(context, languages);
+				self.loadSync(context, settings, languages);
 			} finally {
 				self.loadThread = null;
 				self = null;
@@ -92,10 +92,10 @@ public class DictionaryLoader {
 	}
 
 
-	public static void load(Context context, Language language) {
+	public static void load(@NonNull Context context, @NonNull SettingsStore settings, @Nullable Language language) {
 		ArrayList<Language> languages = new ArrayList<>(1);
 		languages.add(language);
-		load(context, languages);
+		load(context, settings, languages);
 	}
 
 
@@ -120,11 +120,11 @@ public class DictionaryLoader {
 				lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
 
 				final boolean noDictionary = hash == null || hash.isEmpty();
-				final boolean isDictionaryOutdated = noDictionary || !hash.equals(new WordFile(context, language, self.assets).getHash());
-				final boolean noNotifications = !(new SettingsStore(context).getNotificationsApproved());
+				final boolean isDictionaryOutdated = noDictionary || !hash.equals(new WordFile(context, language, context.getAssets()).getHash());
+				final boolean noNotifications = DeviceInfo.AT_LEAST_ANDROID_13;
 
 				if (noDictionary || (isDictionaryOutdated && noNotifications)) {
-					load(context, language);
+					load(context, settings, language);
 				} else if (isDictionaryOutdated) {
 					new DictionaryUpdateNotification(context, language).show();
 				}
@@ -154,7 +154,7 @@ public class DictionaryLoader {
 	}
 
 
-	private void loadSync(Context context, ArrayList<Language> languages) {
+	private void loadSync(@NonNull Context context, @NonNull SettingsStore settings, @NonNull ArrayList<Language> languages) {
 		currentFile = 0;
 		Timer.start(IMPORT_TIMER);
 
@@ -162,11 +162,11 @@ public class DictionaryLoader {
 
 		// SQLite does not support parallel queries, so let's import them one by one
 		for (Language lang : languages) {
-			if (loadThread.isInterrupted()) {
+			if (loadThread != null && loadThread.isInterrupted()) {
 				sendProgressMessage(lang, 0);
 				break;
 			}
-			importAll(context, lang);
+			importAll(context, settings, lang);
 			currentFile++;
 		}
 
@@ -174,7 +174,7 @@ public class DictionaryLoader {
 	}
 
 
-	private void importAll(Context context, Language language) {
+	private void importAll(@NonNull Context context, @NonNull SettingsStore settings, @Nullable Language language) {
 		if (language == null) {
 			Logger.e(LOG_TAG, "Failed loading a dictionary for NULL language.");
 			loadingBar.showError(InvalidLanguageException.class.getSimpleName(), null, -1);
@@ -196,6 +196,9 @@ public class DictionaryLoader {
 			sendProgressMessage(language, ++progress);
 			logLoadingStep("Storage cleared", language, Timer.restart());
 
+			if (language instanceof NaturalLanguage) {
+				((NaturalLanguage) language).updateKeyCharacters(settings);
+			}
 			int lettersCount = importLetters(language);
 			sendProgressMessage(language, ++progress);
 			logLoadingStep("Letters imported", language, Timer.restart());
@@ -287,7 +290,7 @@ public class DictionaryLoader {
 
 
 	private void importWordFile(Context context, Language language, int positionShift, float minProgress, float maxProgress) throws Exception {
-		WordFile wordFile = new WordFile(context, language, assets);
+		WordFile wordFile = new WordFile(context, language, context.getAssets());
 		WordBatch batch = new WordBatch(language, SettingsStore.DICTIONARY_IMPORT_BATCH_SIZE + 1);
 		float progressRatio = (maxProgress - minProgress) / wordFile.getWords();
 		int wordCount = 0;
@@ -296,7 +299,7 @@ public class DictionaryLoader {
 
 		try (BufferedReader ignored = wordFile.getReader()) {
 			while (wordFile.notEOF()) {
-				if (loadThread.isInterrupted()) {
+				if (loadThread != null && loadThread.isInterrupted()) {
 					throw new DictionaryImportAbortedException();
 				}
 

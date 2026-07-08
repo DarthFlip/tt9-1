@@ -25,13 +25,6 @@ La carga del diccionario puede saturar teléfonos de gama baja. Al usar la versi
 
 Puede evitar lo anterior usando la versión "full".
 
-#### Notas para Android 13 o superior
-Por defecto, las notificaciones para las aplicaciones recién instaladas están deshabilitadas. Se recomienda habilitarlas. De esta manera, recibirá notificaciones cuando haya actualizaciones de diccionario, y una vez que elija instalarlas, TT9 mostrará el progreso de la carga. Las nuevas actualizaciones se lanzan como máximo una vez al mes, por lo que no tiene que preocuparse por recibir demasiados mensajes.
-
-Puede habilitar las notificaciones yendo a Configuración → Idiomas y activando las Notificaciones de Diccionario.
-
-_Si decide mantenerlas desactivadas, TT9 seguirá funcionando sin problemas, pero tendrá que gestionar los diccionarios manualmente._
-
 ## Configuración
 En la pantalla de Configuración, puedes elegir los idiomas para escribir, configurar las teclas rápidas del teclado, cambiar la apariencia de la aplicación o mejorar la compatibilidad con tu teléfono.
 
@@ -163,6 +156,23 @@ _**Nota 2:** Para enviar mensajes con OK en aplicaciones de mensajería, debes h
 #### Tecla de Agregar Palabra:
 Agregar una nueva palabra al diccionario para el idioma actual.
 
+#### Tecla de Editar Palabra:
+Editar la palabra donde está ubicado el cursor de texto.
+
+En modo de edición, tiene las siguientes opciones:
+- **Presione la tecla 1-9:** Reemplaza la letra seleccionada actualmente por otra.
+- **Mantenga presionada la tecla Izquierda/Derecha:** Ir a la letra anterior/siguiente.
+- **Presione la tecla OK:** Continuar a la siguiente letra. Si no hay más letras, finalizará la edición, guardará la palabra y añadirá automáticamente un espacio después (si la opción correspondiente está habilitada).
+- **Presione la tecla Retroceso:** Elimina la letra actual.
+- **Presione la tecla Filtrar:** Duplica la letra actual. Por ejemplo, si la letra actual es "a", al presionar Filtrar pasará a ser "aa".
+- **Presione la tecla 0:** Finalizar la edición y guardar la palabra.
+
+**Dispositivos con pantalla táctil:**
+- **Toque una letra de la lista de sugerencias:** Equivale a seleccionar la letra y presionar OK.
+- **Mantenga pulsada la última letra de la palabra:** Selecciona la letra, finaliza la edición, pero no añade automáticamente un espacio después.
+
+También puede usar el modo de edición para escribir palabras nuevas. Por ejemplo, si quiere escribir "Anakin", que no está en el diccionario, solo presione las teclas correspondientes: 2-6-2-5-4-6. Esto producirá una palabra sin sentido que puede convertir fácilmente en "Anakin" reemplazando las letras por las correctas.
+
 #### Tecla de Borrar (Atrás, Del o Retroceso):
 Simplemente elimina el texto.
 
@@ -186,6 +196,9 @@ _En campos de solo números, cambiar el modo no es posible. En tales casos, la t
 #### Tecla de Herramientas del portapapeles:
 Mostrar el panel de herramientas del portapapeles, que permite seleccionar, cortar, copiar y pegar texto. Puede cerrar el panel volviendo a presionar la tecla "✱" o, en la mayoría de las aplicaciones, la tecla Atrás. Más detalles están disponibles [a continuación](#herramientas-del-portapapeles).
 
+#### Tecla de Ocultar Teclado:
+Ocultar el teclado. Para mostrarlo de nuevo, solo empiece a escribir o toque un campo de texto o de números.
+
 #### Tecla de Idioma Siguiente (Por Defecto: mantener presionado #):
 Cambiar el idioma de escritura cuando se hayan habilitado varios idiomas en la configuración.
 
@@ -196,8 +209,16 @@ Abra el diálogo de Cambiar Teclado de Android, donde puede seleccionar entre to
 - **Al escribir texto:** Alterna entre mayúsculas y minúsculas.
 - **Al escribir caracteres especiales con la tecla 0:** Muestra el siguiente grupo de caracteres.
 
+#### Tecla de Mostrar Emojis:
+_Solo en modo Predictivo._
+
+Mostrar el panel de emojis. Es un atajo para presionar la tecla 1 varias veces en modo Predictivo.
+
 #### Tecla de Mostrar Ajustes:
 Abra la pantalla de configuración de Ajustes. Aquí puede elegir los idiomas para escribir, configurar las teclas de acceso rápido del teclado, cambiar la apariencia de la aplicación o mejorar la compatibilidad con su teléfono.
+
+#### Tecla de Alternar Modo Predictivo:
+Alterna entre el Modo Predictivo y el modo ABC. En la práctica, equivale a activar o desactivar el modo Predictivo.
 
 #### Tecla de Deshacer:
 Revierte la última acción. Equivale a presionar Ctrl+Z en un ordenador o Cmd+Z en un Mac.
@@ -218,13 +239,14 @@ Mostrar una lista de todos los comandos (o funciones).
 Muchos teléfonos tienen solo dos o tres botones "libres" que se pueden usar como teclas de acceso rápido. Pero T9 Tradicional tiene muchas más funciones, lo que significa que simplemente no hay espacio para todas en el teclado. La Paleta de Comandos resuelve este problema. Permite invocar las funciones adicionales (o comandos) usando combinaciones de teclas.
 
 A continuación se muestra una lista de los posibles comandos:
-- **Mostrar la pantalla de Ajustes (Combinación por Defecto: mantener presionado ✱, tecla 1).** Igual que presionar [Mostrar Ajustes](#tecla-de-mostrar-ajustes).
-- **Agregar una palabra (Combinación por Defecto: mantener presionado ✱, tecla 2).** Igual que presionar [Agregar Palabra](#tecla-de-agregar-palabra).
+- **Agregar una palabra (Combinación por Defecto: mantener presionado ✱, tecla 1).** Igual que presionar [Agregar Palabra](#tecla-de-agregar-palabra).
+- **Editar una palabra (Combinación por Defecto: mantener presionado ✱, tecla 2).** Igual que presionar [Editar Palabra](#tecla-de-editar-palabra).
 - **Entrada por voz (Combinación por Defecto: mantener presionado ✱, tecla 3).** Igual que presionar [Entrada por Voz](#tecla-de-entrada-por-voz).
 - **Deshacer (Combinación por Defecto: mantener presionado ✱, tecla 4).** Igual que presionar [Tecla de Deshacer](#tecla-de-deshacer).
 - **Herramientas del portapapeles (Combinación por Defecto: mantener presionado ✱, tecla 5).** Igual que presionar [Herramientas del portapapeles](#tecla-de-herramientas-del-portapapeles).
 - **Rehacer (Combinación por Defecto: mantener presionado ✱, tecla 6).** Igual que presionar [Tecla de Rehacer](#tecla-de-rehacer).
 - **Seleccionar un teclado diferente (Combinación por Defecto: mantener presionado ✱, tecla 8).** Igual que presionar [Seleccionar Teclado](#tecla-de-seleccionar-teclado).
+- **Mostrar la pantalla de Ajustes (Combinación por Defecto: mantener presionado ✱, tecla 9).** Igual que presionar [Mostrar Ajustes](#tecla-de-mostrar-ajustes).
 
 _Esta tecla no hace nada cuando el diseño de pantalla está configurado en "Teclado Virtual" porque todas las teclas para todas las funciones posibles ya están disponibles en la pantalla._
 
@@ -412,8 +434,6 @@ Para mitigar este problema, ve a Configuración → Apariencia, y habilita "Icon
 
 ### Problemas generales en los teléfonos Xiaomi
 Xiaomi ha introducido varios permisos no estándar en sus teléfonos que impiden que el teclado virtual en pantalla de Traditional T9 funcione correctamente. Más precisamente, las teclas "Mostrar Configuración" y "Agregar Palabra" pueden no realizar sus funciones respectivas. Para solucionarlo, debes otorgar los permisos "Mostrar ventana emergente" y "Mostrar ventana emergente mientras se ejecuta en segundo plano" a TT9 desde la configuración de tu teléfono. [Esta guía](https://parental-control.flashget.com/how-to-enable-display-pop-up-windows-while-running-in-the-background-on-flashget-kids-on-xiaomi) para otra aplicación explica cómo hacerlo.
-
-También se recomienda encarecidamente otorgar el permiso de "Notificación permanente". Esto es similar al permiso de "Notificaciones" introducido en Android 13. Consulta [arriba](#notas-para-android-13-o-superior) para obtener más información sobre por qué lo necesitas.
 
 _Los problemas con Xiaomi se han discutido en [este issue de GitHub](https://github.com/sspanak/tt9/issues/490)._
 

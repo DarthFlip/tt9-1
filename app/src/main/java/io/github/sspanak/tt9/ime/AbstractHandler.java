@@ -14,12 +14,13 @@ abstract public class AbstractHandler extends InputMethodService {
 	abstract public boolean onHotkey(int keyCode, boolean repeat, boolean validateOnly);
 	abstract protected boolean onNumber(int key, boolean hold, int repeat);
 	abstract public boolean onOK();
+	abstract protected boolean onOK(int fromKey);
 	abstract public boolean onText(String text, boolean validateOnly); // used for "#", "*" and whatnot
 
 	// lifecycle
 	abstract protected void onInit();
 	abstract protected boolean onStart(EditorInfo inputField, boolean restarting);
-	abstract protected void onFinishTyping();
+	abstract protected void onFinishTyping(boolean willExitInput);
 	abstract protected void onStop();
 	abstract protected void setInputField(EditorInfo inputField);
 	abstract protected void waitForSpaceTrimKey();

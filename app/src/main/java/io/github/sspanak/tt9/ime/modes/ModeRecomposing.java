@@ -1,10 +1,13 @@
 package io.github.sspanak.tt9.ime.modes;
 
+import android.content.Context;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 
+import io.github.sspanak.tt9.R;
 import io.github.sspanak.tt9.hacks.InputType;
 import io.github.sspanak.tt9.ime.helpers.TextField;
 import io.github.sspanak.tt9.languages.Language;
@@ -326,7 +329,7 @@ public class ModeRecomposing extends InputMode {
 		suggestionRecommendation = 0;
 
 		final Text letterAtPos = position >= 0 && position < originalWord.length() ? new Text(language, originalWord.charAt(position)) : new Text(null);
-		final ArrayList<String> keyChars = language.getKeyCharacters(numberAtPosition);
+		final ArrayList<String> keyChars = settings.getOrderedKeyChars(language, numberAtPosition);
 		keyChars.add(language.getKeyNumeral(numberAtPosition));
 
 
@@ -380,5 +383,17 @@ public class ModeRecomposing extends InputMode {
 	public String toString() {
 		final String originalWord = textField != null ? textField.getComposingText() : "";
 		return originalWord + " => " + prefix + "?" + suffix;
+	}
+
+
+	@NonNull
+	@Override
+	public String toAccessibilityString(@NonNull Context ctx) {
+		String recomposedWord = textField != null ? textField.getComposingText() : null;
+		if (recomposedWord == null || recomposedWord.isEmpty()) {
+			recomposedWord = prefix + suffix;
+		}
+
+		return ctx.getString(R.string.accessibility_mode_recomposing, recomposedWord);
 	}
 }

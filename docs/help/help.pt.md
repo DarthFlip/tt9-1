@@ -25,13 +25,6 @@ O carregamento do dicionário pode sobrecarregar telefones de baixo desempenho. 
 
 Você pode evitar isso usando a versão “completa”.
 
-#### Observação para Android 13 ou superior
-Por padrão, as notificações para aplicativos recém-instalados estão desativadas. Recomenda-se ativá-las. Isso permite que você seja informado sobre atualizações dos dicionários, e, uma vez que escolha instalá-las, o TT9 exibirá o progresso do carregamento. As novas atualizações são publicadas no máximo uma vez por mês, portanto, você não precisa se preocupar com excesso de notificações.
-
-Você pode ativar as notificações indo em Configurações → Idiomas e ativando Notificações de Dicionário.
-
-_Se optar por mantê-las desativadas, o TT9 continuará funcionando sem problemas, mas você terá que gerenciar os dicionários manualmente._
-
 ## Configurações
 Na tela de Configurações, você pode escolher idiomas para digitação, configurar atalhos do teclado, mudar a aparência do aplicativo ou melhorar a compatibilidade com seu telefone.
 
@@ -119,9 +112,7 @@ Limpa o filtro de sugestões, se aplicado.
 - Quando sugestões são exibidas, insere a sugestão selecionada.
 - Caso contrário, executa a ação padrão do aplicativo (por exemplo, enviar uma mensagem, acessar uma URL, ou inserir uma quebra de linha).
 
-_**Nota**: Cada aplicativo decide qual função executar ao pressionar OK, e o TT9 não tem controle sobre esse comportamento._
-
-_**Nota 2**: Para enviar mensagens com OK em aplicativos de mensagens, você deve ativar a configuração “Enviar com Enter” ou uma configuração semelhante. Se o aplicativo não tiver tal configuração, provavelmente ele não suporta o envio por este método. Nesse caso, use o aplicativo KeyMapper do [Play Store](https://play.google.com/store/apps/details?id=io.github.sds100.keymapper) ou [F-droid](https://f-droid.org/packages/io.github.sds100.keymapper/). Ele pode detectar aplicativos de mensagens e simular uma tecla no botão de envio da mensagem. Consulte o [guia de início rápido](https://docs.keymapper.club/quick-start/) para mais informações._
+_**Nota**: Para enviar mensagens com a tecla OK em aplicativos de bate-papo, acesse Configurações → Teclado, role até a seção «Compatibilidade» e ative «Enviar mensagens com OK»._
 
 #### Tecla 0:
 - **No modo 123:**
@@ -163,6 +154,23 @@ _**Nota 2**: Para enviar mensagens com OK em aplicativos de mensagens, você dev
 #### Tecla Adicionar Palavra:
 Adiciona uma nova palavra ao dicionário para o idioma atual.
 
+#### Tecla Editar Palavra:
+Edita a palavra onde o cursor de texto está localizado.
+
+No modo de edição, você tem as seguintes opções:
+- **Pressione a tecla 1-9:** Substitui a letra atualmente selecionada por outra.
+- **Mantenha pressionada a tecla Esquerda/Direita:** Vai para a letra anterior/seguinte.
+- **Pressione a tecla OK:** Continua para a próxima letra. Se não houver mais letras, a edição será concluída, a palavra será salva e um espaço será adicionado automaticamente depois (se a configuração correspondente estiver ativada).
+- **Pressione a tecla Backspace:** Exclui a letra atual.
+- **Pressione a tecla Filtrar:** Duplica a letra atual. Por exemplo, se a letra atual for "a", pressionar Filtrar a transformará em "aa".
+- **Pressione a tecla 0:** Finaliza a edição e salva a palavra.
+
+**Dispositivos com tela sensível ao toque:**
+- **Toque em uma letra da lista de sugestões:** Equivale a selecionar a letra e pressionar OK.
+- **Toque e segure a última letra da palavra:** Seleciona a letra, finaliza a edição, mas não adiciona automaticamente um espaço depois.
+
+Você também pode usar o modo de edição para digitar palavras novas. Por exemplo, se quiser digitar "Anakin", que não está no dicionário, basta pressionar as teclas correspondentes: 2-6-2-5-4-6. Isso produzirá uma palavra sem sentido que você pode transformar facilmente em "Anakin" substituindo as letras pelas corretas.
+
 #### Tecla Voltar (Voltar, Excluir ou Retornar):
 Apaga texto.
 
@@ -186,6 +194,9 @@ _Em campos apenas numéricos, mudar de modo é impossível. Neste caso, a tecla 
 #### Tecla de Ferramentas da área de transferência:
 Exibe o painel de ferramentas da área de transferência, permitindo selecionar, recortar, copiar e colar texto. É possível fechar o painel pressionando novamente a tecla "✱" ou, na maioria dos aplicativos, a tecla Voltar. Mais detalhes estão disponíveis [abaixo](#ferramentas-da-área-de-transferência).
 
+#### Tecla Ocultar Teclado:
+Oculta o teclado. Para mostrá-lo novamente, basta começar a digitar ou tocar em um campo de texto ou numérico.
+
 #### Tecla Próximo Idioma (padrão: pressione e segure #):
 Alterar o idioma de digitação quando vários idiomas estiverem ativados nas Configurações.
 
@@ -196,8 +207,16 @@ Abre a caixa de diálogo de mudança de teclado do Android, onde você pode esco
 - **Durante a digitação de texto**: alterna entre maiúsculas e minúsculas.
 - **Durante a digitação de caracteres especiais com a tecla 0**: exibe o próximo grupo de caracteres.
 
+#### Tecla Exibir Emojis:
+_Somente no modo Preditivo._
+
+Exibe o painel de emojis. É um atalho para pressionar a tecla 1 várias vezes no modo Preditivo.
+
 #### Tecla Exibir Configurações:
 Abre a tela de configuração das Configurações, onde você pode escolher os idiomas de entrada, configurar atalhos de teclado, modificar a aparência do aplicativo, ou melhorar a compatibilidade com seu telefone.
+
+#### Tecla Alternar Modo Preditivo:
+Alterna entre o Modo Preditivo e o modo ABC. Na prática, isso equivale a ativar e desativar o modo Preditivo.
 
 #### Tecla Desfazer:
 Reverte a última ação. Equivale a pressionar Ctrl+Z em um computador ou Cmd+Z em um Mac.
@@ -218,13 +237,14 @@ Exibe uma lista de todos os comandos (ou funções).
 Muitos telefones têm apenas duas ou três teclas “livres” que podem ser usadas como atalhos. No entanto, o Traditional T9 possui muito mais funções, então é impossível ter todas elas no teclado. A Paleta de Comandos resolve esse problema permitindo invocar funções adicionais por meio de combinações de teclas.
 
 Aqui está uma lista de comandos possíveis:
-- **Exibir Tela de Configurações (Combinação padrão: pressione e segure ✱, tecla 1)**. Igual ao pressionar [Exibir Configurações](#tecla-exibir-configurações).
-- **Adicionar Palavra (Combinação padrão: pressione e segure ✱, tecla 2)**. Igual ao pressionar [Adicionar Palavra](#tecla-adicionar-palavra).
+- **Adicionar Palavra (Combinação padrão: pressione e segure ✱, tecla 1)**. Igual ao pressionar [Adicionar Palavra](#tecla-adicionar-palavra).
+- **Editar Palavra (Combinação padrão: pressione e segure ✱, tecla 2)**. Igual ao pressionar [Editar Palavra](#tecla-editar-palavra).
 - **Entrada por Voz (Combinação padrão: pressione e segure ✱, tecla 3)**. Igual ao pressionar [Entrada por Voz](#tecla-entrada-por-voz).
 - **Tecla Desfazer (Combinação padrão: pressione e segure ✱, tecla 4)**. Igual ao pressionar [Tecla Desfazer](#tecla-desfazer).
 - **Ferramentas da área de transferência (Combinação padrão: pressione e segure ✱, tecla 5)**. Igual ao pressionar [Ferramentas da área de transferência](#tecla-de-ferramentas-da-área-de-transferência).
 - **Tecla Refazer (Combinação padrão: pressione e segure ✱, tecla 6)**. Igual ao pressionar [Tecla Refazer](#tecla-refazer).
 - **Selecionar um Teclado Diferente (Combinação padrão: pressione e segure ✱, tecla 8)**. Igual ao pressionar [Selecionar Teclado](#tecla-selecionar-teclado).
+- **Exibir Tela de Configurações (Combinação padrão: pressione e segure ✱, tecla 9)**. Igual ao pressionar [Exibir Configurações](#tecla-exibir-configurações).
 
 _Esta tecla não faz nada quando a Exibição de Tela está configurada para “Teclado Virtual”, pois todas as teclas para todas as funções possíveis já estão disponíveis na tela._
 
@@ -412,8 +432,6 @@ Para mitigar esse problema, vá para Configurações → Aparência e ative "Íc
 
 ### Problemas gerais em telefones Xiaomi
 A Xiaomi introduziu várias permissões não padrão em seus celulares, o que impede o teclado virtual na tela do Traditional T9 de funcionar corretamente. Mais especificamente, as teclas "Exibir Configurações" e "Adicionar Palavra" podem não executar suas funções respectivas. Para corrigir isso, você deve conceder as permissões "Exibir janela pop-up" e "Exibir janela pop-up em segundo plano" ao TT9 nas configurações do seu telefone. [Este guia](https://parental-control.flashget.com/how-to-enable-display-pop-up-windows-while-running-in-the-background-on-flashget-kids-on-xiaomi) para outro aplicativo explica como fazer isso.
-
-É também altamente recomendável conceder a permissão "Notificação Permanente". Isso é semelhante à permissão "Notificações" introduzida no Android 13. Veja [acima](#observação-para-android-13-ou-superior) para mais informações sobre por que você precisa dela.
 
 _Os problemas com Xiaomi foram discutidos nesta [issue do GitHub](https://github.com/sspanak/tt9/issues/490)._
 

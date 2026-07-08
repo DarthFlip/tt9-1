@@ -7,13 +7,20 @@ import android.view.inputmethod.EditorInfo;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import java.util.ArrayList;
+
+import io.github.sspanak.tt9.hacks.AppHacks;
+import io.github.sspanak.tt9.hacks.InputType;
+import io.github.sspanak.tt9.ime.helpers.TextField;
 import io.github.sspanak.tt9.ime.helpers.TextSelection;
+import io.github.sspanak.tt9.ime.mindreader.MindReader;
 import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
 import io.github.sspanak.tt9.ime.voice.VoiceInputOps;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
 import io.github.sspanak.tt9.ui.main.MainView;
+import io.github.sspanak.tt9.ui.tray.StatusBar;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
 /**
@@ -22,20 +29,16 @@ import io.github.sspanak.tt9.util.sys.DeviceInfo;
 abstract public class MainViewHandler extends HotkeyHandler {
 	private int previousOrientation = Configuration.ORIENTATION_UNDEFINED;
 
+	private boolean touchExplorationEnabled = false;
 	private float normalizedWidth = -1;
 	private float normalizedHeight = -1;
 	private int width = 0;
 
 
 	@Override
-	protected void onInit() {
-		super.onInit();
-	}
-
-
-	@Override
 	protected boolean onStart(EditorInfo field, boolean restarting) {
 		resetNormalizedDimensions();
+		touchExplorationEnabled = DeviceInfo.isTouchExplorationEnabled(this);
 		return super.onStart(field, restarting);
 	}
 
@@ -98,9 +101,15 @@ abstract public class MainViewHandler extends HotkeyHandler {
 		}
 	}
 
+	public boolean areEmojiCategoriesVisible() {
+		return false; // only in premium
+	}
+
+
 	public boolean isFilteringFuzzy() {
 		return mInputMode.isStemFilterFuzzy();
 	}
+
 
 	public boolean isFilteringOn() {
 		String stem = mInputMode.getWordStem();
@@ -147,18 +156,35 @@ abstract public class MainViewHandler extends HotkeyHandler {
 	}
 
 
+	public boolean isTouchExplorationEnabled() {
+		return touchExplorationEnabled;
+	}
+
+
 	public boolean isVoiceInputActive() {
-		return voiceInputOps != null && voiceInputOps.isListening();
+		return voiceInputOps.isListening();
 	}
 
 
 	public boolean isVoiceInputMissing() {
-		return !(new VoiceInputOps(this, null, null, null, null)).isAvailable();
+		return !voiceInputOps.isAvailable();
 	}
 
 
 	public String getABCString() {
 		return mLanguage == null ? "ABC" : mLanguage.getAbcString().toUpperCase(mLanguage.getLocale());
+	}
+
+
+	@NonNull
+	public ArrayList<Integer> getAllowedInputModes() {
+		return new ArrayList<>(allowedInputModes);
+	}
+
+
+	@NonNull
+	public AppHacks getAppHacks() {
+		return appHacks;
 	}
 
 
@@ -188,6 +214,24 @@ abstract public class MainViewHandler extends HotkeyHandler {
 	}
 
 	/**
+	 * Compute the input mode the keyboard would switch to next, without mutating state. Mirrors
+	 * {@link io.github.sspanak.tt9.commands.CmdNextInputMode}'s cycle logic — upstream moved that
+	 * logic into the Command object when hotkey dispatch became Command-based, but the on-screen
+	 * QWERTY mode-switch key still needs a read-only "what's next" lookup for its label preview.
+	 */
+	protected int nextInputMode() {
+		if (allowedInputModes.isEmpty()) {
+			return mInputMode.getId();
+		}
+		if (allowedInputModes.size() == 1 && allowedInputModes.contains(InputMode.MODE_123) && !InputModeKind.is123(mInputMode)) {
+			return InputMode.MODE_123;
+		}
+		final int nextModeIndex = (allowedInputModes.indexOf(mInputMode.getId()) + 1) % allowedInputModes.size();
+		return allowedInputModes.get(nextModeIndex);
+	}
+
+
+	/**
 	 * Label for the input mode the keyboard would switch to next. Used by the on-screen QWERTY's
 	 * mode-switch key to preview the upcoming mode without mutating state.
 	 */
@@ -204,8 +248,9 @@ abstract public class MainViewHandler extends HotkeyHandler {
 	}
 
 
-	public int getTextCase() {
-		return mInputMode.getTextCase();
+	@NonNull
+	public InputType getInputType() {
+		return inputType;
 	}
 
 
@@ -215,8 +260,15 @@ abstract public class MainViewHandler extends HotkeyHandler {
 	}
 
 
+	@Nullable
 	public MainView getMainView() {
 		return mainView;
+	}
+
+
+	@NonNull
+	public MindReader getMindReader() {
+		return mindReader;
 	}
 
 
@@ -224,10 +276,32 @@ abstract public class MainViewHandler extends HotkeyHandler {
 		return settings;
 	}
 
+	@Nullable
+	public StatusBar getStatusBar() {
+		return statusBar;
+	}
+
+
+	public int getTextCase() {
+		return mInputMode.getTextCase();
+	}
+
 
 	@Nullable
 	public TextSelection getTextSelection() {
 		return textSelection;
+	}
+
+
+	@NonNull
+	public TextField getTextField() {
+		return textField;
+	}
+
+
+	@NonNull
+	public VoiceInputOps getVoiceInputOps() {
+		return voiceInputOps;
 	}
 
 
@@ -242,7 +316,7 @@ abstract public class MainViewHandler extends HotkeyHandler {
 
 	public float getNormalizedWidth() {
 		if (normalizedWidth < 0) {
-			normalizedWidth = settings.getWidthPercent(!DeviceInfo.isLandscapeOrientation(this)) / 100f;
+			normalizedWidth = settings.getWidthPercent(!DeviceInfo.isLandscapeOrientation(this), null) / 100f;
 		}
 		return normalizedWidth;
 	}
@@ -250,7 +324,7 @@ abstract public class MainViewHandler extends HotkeyHandler {
 
 	public float getNormalizedHeight() {
 		if (normalizedHeight < 0) {
-			normalizedHeight = (float) settings.getNumpadKeyHeight() / (float) settings.getNumpadKeyDefaultHeight();
+			normalizedHeight = (float) settings.getNumpadKeyHeight(null) / (float) settings.getNumpadKeyDefaultHeight();
 		}
 		return normalizedHeight;
 	}

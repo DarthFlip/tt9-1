@@ -3,7 +3,8 @@ package io.github.sspanak.tt9.preferences.settings;
 import android.content.Context;
 import android.view.Gravity;
 
-import io.github.sspanak.tt9.BuildConfig;
+import androidx.annotation.Nullable;
+
 import io.github.sspanak.tt9.R;
 import io.github.sspanak.tt9.preferences.screens.appearance.DropDownAlignment;
 import io.github.sspanak.tt9.preferences.screens.appearance.DropDownBottomPaddingPortrait;
@@ -14,6 +15,10 @@ import io.github.sspanak.tt9.preferences.screens.appearance.DropDownWidth;
 import io.github.sspanak.tt9.preferences.screens.appearance.SwitchDoubleTapResize;
 import io.github.sspanak.tt9.preferences.screens.appearance.SwitchDragResize;
 import io.github.sspanak.tt9.preferences.screens.appearance.SwitchKeyShadows;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownAlignmentUnfolded;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownBottomPaddingPortraitUnfolded;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownSuggestionFontSizeUnfolded;
+import io.github.sspanak.tt9.preferences.screens.appearanceUnfolded.DropDownWidthUnfolded;
 import io.github.sspanak.tt9.preferences.screens.keypad.SwitchHapticFeedback;
 import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
@@ -39,6 +44,9 @@ public class SettingsUI extends SettingsTyping {
 	private int DEFAULT_WIDTH_LANDSCAPE = 0;
 	private Boolean DEFAULT_QUICK_SWITCH_LANGUAGE = null;
 
+	private static boolean isFolded = true;
+	public static boolean isFoldedPreview = true;
+
 
 	SettingsUI(Context context) {
 		super(context);
@@ -60,25 +68,20 @@ public class SettingsUI extends SettingsTyping {
 		}
 	}
 
-	public boolean getNotificationsApproved() {
-		return !DeviceInfo.AT_LEAST_ANDROID_13 || getStringifiedInt("pref_asked_for_notifications_version", 0) == Integer.MAX_VALUE;
-	}
-
-	public boolean shouldAskForNotifications() {
-		return DeviceInfo.AT_LEAST_ANDROID_13 && getStringifiedInt("pref_asked_for_notifications_version", 0) < BuildConfig.VERSION_CODE;
-	}
-
-	public int getBottomPaddingPortrait() {
-		return getStringifiedInt(DropDownBottomPaddingPortrait.NAME, DropDownBottomPaddingPortrait.DEFAULT);
+	public int getBottomPaddingPortrait(@Nullable Boolean folded) {
+		return getStringifiedInt(
+			getFoldedAuto(folded) ? DropDownBottomPaddingPortrait.NAME : DropDownBottomPaddingPortraitUnfolded.NAME,
+			DropDownBottomPaddingPortrait.DEFAULT
+		);
 	}
 
 	public int getBottomPaddingPortraitPx() {
-		return Math.round(getBottomPaddingPortrait() * DeviceInfo.getScreenPixelDensity(context));
+		return Math.round(getBottomPaddingPortrait(null) * DeviceInfo.getScreenPixelDensity(context));
 	}
 
 	/**
 	 * Samsung devices with Android 15+ SOMETIMES report bottom inset = navigational bar height, but
-	 * but they still move up the IME window up, the Android 14 way. So, if we apply our bottom padding,
+	 * they still move up the IME window up, the Android 14 way. So, if we apply our bottom padding,
 	 * we end up with double padding. To avoid this, we read the reported device bottom inset and
 	 * overwrite the default bottom padding accordingly.
 	 * Safe to call on non-Samsung devices and pre-Android 15 devices. It will just do nothing.
@@ -94,14 +97,6 @@ public class SettingsUI extends SettingsTyping {
 		}
 	}
 
-	public void setNotificationsApproved(boolean yes) {
-		getPrefsEditor().putString(
-			"pref_asked_for_notifications_version",
-			Integer.toString(yes ? Integer.MAX_VALUE : BuildConfig.VERSION_CODE)
-		);
-		getPrefsEditor().apply();
-	}
-
 	public boolean isStatusIconEnabled() {
 		return prefs.getBoolean("pref_status_icon", DeviceInfo.IS_QIN_F21 || !DeviceInfo.noKeyboard(context));
 	}
@@ -112,6 +107,14 @@ public class SettingsUI extends SettingsTyping {
 
 	public boolean getDoubleTapResize() {
 		return prefs.getBoolean(SwitchDoubleTapResize.NAME, SwitchDoubleTapResize.DEFAULT);
+	}
+
+	public void setFolded(boolean folded) {
+		isFolded = folded;
+	}
+
+	protected boolean getFoldedAuto(@Nullable Boolean folded) {
+		return folded == null ? isFolded : folded;
 	}
 
 	public boolean getHapticFeedback() {
@@ -128,16 +131,23 @@ public class SettingsUI extends SettingsTyping {
 		return prefs.getBoolean("pref_sound_feedback", false);
 	}
 
-	public int getAlignment() {
-		return getStringifiedInt(DropDownAlignment.NAME, Gravity.CENTER_HORIZONTAL);
+	public int getAlignment(@Nullable Boolean folded) {
+		return getStringifiedInt(
+			getFoldedAuto(folded) ? DropDownAlignment.NAME : DropDownAlignmentUnfolded.NAME,
+			Gravity.CENTER_HORIZONTAL
+		);
 	}
 
-	public void setAlignment(int alignment) {
+	public void setAlignment(int alignment, @Nullable Boolean folded) {
 		if (alignment != Gravity.CENTER_HORIZONTAL && alignment != Gravity.START && alignment != Gravity.END) {
 			Logger.w(getClass().getSimpleName(), "Ignoring invalid numpad key alignment: " + alignment);
+			return;
 		}
 
-		getPrefsEditor().putString(DropDownAlignment.NAME, Integer.toString(alignment));
+		getPrefsEditor().putString(
+			getFoldedAuto(folded) ? DropDownAlignment.NAME : DropDownAlignmentUnfolded.NAME,
+			Integer.toString(alignment)
+		);
 		getPrefsEditor().apply();
 	}
 
@@ -159,11 +169,14 @@ public class SettingsUI extends SettingsTyping {
 	}
 
 	public float getSuggestionFontScale() {
-		return getSuggestionFontSizePercent() / 100f;
+		return getSuggestionFontSizePercent(null) / 100f;
 	}
 
-	public int getSuggestionFontSizePercent() {
-		return getStringifiedInt(DropDownSuggestionFontSize.NAME, 100);
+	public int getSuggestionFontSizePercent(@Nullable Boolean folded) {
+		return getStringifiedInt(
+			getFoldedAuto(folded) ? DropDownSuggestionFontSize.NAME : DropDownSuggestionFontSizeUnfolded.NAME,
+			100
+		);
 	}
 
 	public boolean getSuggestionSmoothScroll() {
@@ -191,8 +204,11 @@ public class SettingsUI extends SettingsTyping {
 		return DEFAULT_WIDTH_LANDSCAPE = Math.round(width / 5) * 5;
 	}
 
-	public int getWidthPercent(boolean isPortrait) {
-		return getStringifiedInt(DropDownWidth.NAME, getDefaultWidthPercent(isPortrait));
+	public int getWidthPercent(boolean isPortrait, @Nullable Boolean folded) {
+		return getStringifiedInt(
+			getFoldedAuto(folded) ? DropDownWidth.NAME : DropDownWidthUnfolded.NAME,
+			getDefaultWidthPercent(isPortrait)
+		);
 	}
 
 	public void setMainViewLayout(int layout) {

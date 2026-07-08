@@ -11,15 +11,18 @@ import io.github.sspanak.tt9.commands.CmdEditText;
 import io.github.sspanak.tt9.commands.CmdEditWord;
 import io.github.sspanak.tt9.commands.CmdFilterClear;
 import io.github.sspanak.tt9.commands.CmdFilterSuggestions;
+import io.github.sspanak.tt9.commands.CmdHideKeyboard;
 import io.github.sspanak.tt9.commands.CmdNextInputMode;
 import io.github.sspanak.tt9.commands.CmdNextLanguage;
 import io.github.sspanak.tt9.commands.CmdRedo;
 import io.github.sspanak.tt9.commands.CmdSelectKeyboard;
 import io.github.sspanak.tt9.commands.CmdShift;
+import io.github.sspanak.tt9.commands.CmdShowEmojis;
 import io.github.sspanak.tt9.commands.CmdShowSettings;
 import io.github.sspanak.tt9.commands.CmdSpaceKorean;
 import io.github.sspanak.tt9.commands.CmdSuggestionNext;
 import io.github.sspanak.tt9.commands.CmdSuggestionPrevious;
+import io.github.sspanak.tt9.commands.CmdTogglePredictiveMode;
 import io.github.sspanak.tt9.commands.CmdUndo;
 import io.github.sspanak.tt9.commands.CmdVoiceInput;
 import io.github.sspanak.tt9.commands.Command;
@@ -111,6 +114,9 @@ public class SettingsHotkeys extends SettingsVirtualNumpad {
 	public int getKeyFilterSuggestions() {
 		return getFunctionKey(CmdFilterSuggestions.ID);
 	}
+	public int getKeyHideKeyboard() {
+		return getFunctionKey(CmdHideKeyboard.ID);
+	}
 	public int getKeyPreviousSuggestion() {
 		return getFunctionKey(CmdSuggestionPrevious.ID);
 	}
@@ -132,8 +138,14 @@ public class SettingsHotkeys extends SettingsVirtualNumpad {
 	public int getKeySpaceKorean() {
 		return getFunctionKey(CmdSpaceKorean.ID);
 	}
+	public int getKeyShowEmojis() {
+		return getFunctionKey(CmdShowEmojis.ID);
+	}
 	public int getKeyShowSettings() {
 		return getFunctionKey(CmdShowSettings.ID);
+	}
+	public int getKeyTogglePredictiveMode() {
+		return getFunctionKey(CmdTogglePredictiveMode.ID);
 	}
 	public int getKeyUndo() {
 		return getFunctionKey(CmdUndo.ID);
@@ -143,21 +155,6 @@ public class SettingsHotkeys extends SettingsVirtualNumpad {
 	}
 	public int getKeyVoiceInput() {
 		return getFunctionKey(CmdVoiceInput.ID);
-	}
-
-
-	public String getFunction(int keyCode) {
-		if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
-			return null;
-		}
-
-		for (Command cmd : CommandCollection.getHotkeyCommands()) {
-			if (keyCode == getFunctionKey(cmd.getId())) {
-				return cmd.getId();
-			}
-		}
-
-		return null;
 	}
 
 

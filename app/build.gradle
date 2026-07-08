@@ -5,6 +5,7 @@ plugins {
 apply from: 'constants.gradle'
 apply from: 'build-definitions.gradle'
 apply from: 'build-dictionaries.gradle'
+apply from: 'build-ngrams.gradle'
 apply from: 'validate-languages.gradle'
 apply from: 'help-tools.gradle'
 apply from: 'bundle-bigram-seed.gradle'
@@ -20,7 +21,7 @@ tasks.register('validateLanguages') {
 	outputs.dir LANGUAGE_VALIDATION_DIR
 
 	doLast {
-		validateLanguageFiles(DEFINITIONS_INPUT_DIR, DICTIONARIES_INPUT_DIR, LANGUAGE_VALIDATION_DIR.get().asFile, ICONS_DIR)
+		validateLanguageFiles(DEFINITIONS_INPUT_DIR, DICTIONARIES_INPUT_DIR, LANGUAGE_VALIDATION_DIR.get().asFile, ICONS_DIR, NGRAMS_INPUT_DIR)
 	}
 }
 
@@ -37,14 +38,14 @@ tasks.register('buildDefinition') {
 
 tasks.register('buildDictionaryDownloads') {
 	inputs.dir LANGUAGES_INPUT_DIR
-	outputs.dir DICTIONARIES_DOWNLOAD_DIR
 	outputs.dir DICTIONARY_META_OUTPUT_DIR
+	outputs.files(fileTree(DICTIONARIES_DOWNLOAD_DIR) { include '**/*.zip'; exclude '**/*ngrams.zip' })
 
 	dependsOn validateLanguages
 	mustRunAfter validateLanguages
 
 	doLast {
-		convertDictionaries(DEFINITIONS_INPUT_DIR, DICTIONARIES_INPUT_DIR, DICTIONARIES_DOWNLOAD_DIR, DICTIONARY_META_OUTPUT_DIR, ICONS_DIR)
+		convertDictionaries(DEFINITIONS_INPUT_DIR, DICTIONARIES_INPUT_DIR, DICTIONARIES_DOWNLOAD_DIR, DICTIONARY_META_OUTPUT_DIR, ICONS_DIR, NGRAMS_INPUT_DIR)
 	}
 }
 
@@ -52,9 +53,41 @@ tasks.register('buildDictionaryDownloads') {
 tasks.register('copyDownloadsToAssets', Copy) {
 	from DICTIONARIES_DOWNLOAD_DIR
 	include '**/*.zip'
+	exclude '**/*ngrams.zip'
 	into DICTIONARIES_OUTPUT_DIR
 	dependsOn buildDictionaryDownloads
 	mustRunAfter buildDictionaryDownloads
+}
+
+
+tasks.register('generateNgramsMeta') {
+	inputs.dir NGRAMS_INPUT_DIR
+	outputs.dir NGRAMS_META_OUTPUT_DIR
+
+	dependsOn validateLanguages
+	mustRunAfter validateLanguages
+
+	doLast {
+		generateNgramsMetadata(DEFINITIONS_INPUT_DIR, DICTIONARIES_INPUT_DIR, ICONS_DIR, NGRAMS_INPUT_DIR, NGRAMS_META_OUTPUT_DIR)
+	}
+}
+
+
+tasks.register('copyNgramsToAssets', Copy) {
+	from NGRAMS_INPUT_DIR
+	include '**/*ngrams.zip'
+	into NGRAMS_OUTPUT_DIR
+	dependsOn generateNgramsMeta
+	mustRunAfter generateNgramsMeta
+}
+
+
+tasks.register('copyNgramsToDownloads', Copy) {
+	from NGRAMS_INPUT_DIR
+	include '**/*ngrams.zip'
+	into DICTIONARIES_DOWNLOAD_DIR
+	dependsOn generateNgramsMeta
+	mustRunAfter generateNgramsMeta, copyDownloadsToAssets
 }
 
 
@@ -81,10 +114,11 @@ tasks.register('updateManifest') {
 }
 
 clean {
-	delete LANGUAGES_OUTPUT_DIR
+	delete DOCS_HTML_DIR
 	delete DICTIONARIES_OUTPUT_DIR
 	delete DICTIONARIES_DOWNLOAD_DIR
-	delete DOCS_HTML_DIR
+	delete LANGUAGES_OUTPUT_DIR
+	delete NGRAMS_OUTPUT_DIR
 }
 
 // using the exported Closures directly causes weird values, hence the extra wrappers here
@@ -100,13 +134,13 @@ def getVersionString = { flavor -> return flavor == 'debug' ? getDebugVersion() 
 
 android {
 	namespace = PACKAGE_NAME
-	compileSdk = 36
+	compileSdk = 37
 
 	defaultConfig {
 		applicationId = PACKAGE_NAME
 		buildFeatures.buildConfig = true
 		minSdk = 24
-		targetSdk = 36
+		targetSdk = 37
 		versionCode = getVerCode()
 		versionName = getVerName()
 
@@ -204,7 +238,7 @@ android {
 				"generate${variantName}LintVitalReportModel"
 			].each { taskName ->
 				tasks.matching { it.name == taskName }.configureEach {
-					dependsOn(buildDefinition, generateDocs, validateLanguages, buildDictionaryDownloads)
+					dependsOn(buildDefinition, generateDocs, validateLanguages, buildDictionaryDownloads, copyNgramsToAssets, copyNgramsToDownloads)
 
 					if (taskName.toLowerCase().contains("full")) {
 						dependsOn(copyDownloadsToAssets)
@@ -231,8 +265,10 @@ android {
 
 dependencies {
 	implementation 'androidx.preference:preference:1.2.1'
-	implementation 'com.google.android.material:material:1.13.0'
-	premiumImplementation 'com.android.billingclient:billing:8.3.0'
+	implementation "androidx.window:window:1.5.1"
+	implementation "androidx.window:window-java:1.5.1"
+	implementation 'com.google.android.material:material:1.14.0'
+	premiumImplementation 'com.android.billingclient:billing:9.0.0'
 
 	// (Removed) com.microsoft.onnxruntime:onnxruntime-android — the neural swipe decoder was
 	// retired in favor of the SHARK² statistical classifier, which works well on armv7

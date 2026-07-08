@@ -4,21 +4,45 @@ import android.content.Context;
 import android.inputmethodservice.InputMethodService;
 import android.view.inputmethod.EditorInfo;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import io.github.sspanak.tt9.ime.helpers.StandardInputType;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
 public class InputType extends StandardInputType {
+	public static final String OWN_SWITCH_PREVIEW_FIELD_FLAG = InputType.class.getCanonicalName() + ".OWN_PREVIEW_FIELD";
 	public static final String OWN_TEST_FIELD_TAG = InputType.class.getCanonicalName() + ".OWN_TEST_FIELD";
 
 	private final boolean isUs;
+	private final boolean isOwnSwitchPreviewField;
 	private final boolean isOwnTestField;
+	private final String[] POPULAR_CHAT_APPS = new String[] {
+		"com.discord", // Discord
+		"com.google.android.apps.dynamite", // Google Chat
+		"com.instagram.android", // Instagram
+		"com.kakao.talk", // KakaoTalk
+		"jp.naver.line.android", // Line
+		"chat.rocket.android", // Rocket.Chat
+		"org.thoughtcrime.securesms", // Signal
+		"com.Slack", // Slack
+		"com.snapchat.android", // Snapchat
+		"com.microsoft.teams", // M$ Teams
+		"org.telegram.messenger", "org.telegram.messenger.web", // Telegram variants
+		"com.ss.android.ugc.trill", // TikTok
+		"com.viber.voip", // Viber
+		"com.tencent.mm", // WeChat
+		"com.wire", // Wire
+		"com.yahoo.mobile.client.android.im", // Yahoo Messenger
+		"com.beint.zangi", // Zangi
+		"com.zing.zalo", // Zalo
+	};
 
 	public InputType(@Nullable InputMethodService ims, EditorInfo inputField) {
 		super(ims, inputField);
-		isUs = isAppField(ims != null ? ims.getPackageName() : null, EditorInfo.TYPE_NULL);
-		isOwnTestField = isUs && field != null && OWN_TEST_FIELD_TAG.equals(field.privateImeOptions);
+		isUs = ims != null && field != null && ims.getPackageName().equals(field.packageName);
+		isOwnSwitchPreviewField = isUs && OWN_SWITCH_PREVIEW_FIELD_FLAG.equals(field.privateImeOptions);
+		isOwnTestField = isUs && OWN_TEST_FIELD_TAG.equals(field.privateImeOptions);
 	}
 
 
@@ -63,6 +87,17 @@ public class InputType extends StandardInputType {
 		return field != null
 			&& (field.packageName.endsWith("calculator") || field.packageName.endsWith(".calc"))
 			&& (field.inputType & EditorInfo.TYPE_MASK_CLASS) == EditorInfo.TYPE_CLASS_NUMBER;
+	}
+
+
+	/**
+	 * isChatField
+	 * Detects the chat fields of most common messaging apps. Useful for the "Send with OK" hack.
+	 */
+	public boolean isChatField() {
+		return
+			isMultilineText()
+			&& (isWhatsApp() || isMessengerChat() || isAnyOfApps(POPULAR_CHAT_APPS));
 	}
 
 
@@ -162,20 +197,29 @@ public class InputType extends StandardInputType {
 
 
 	/**
-	 * Determines whether to enable the MindReader for the current field. The likely candidates are
-	 * multiline text fields, that do not have TYPE_TEXT_FLAG_NO_SUGGESTIONS (app does not want learning),
-	 * and are not of type URL, password, and others where predictions make no sense.
+	 * Determines whether to disable the MindReader for the current field. The likely candidates are
+	 * fields that require no "learning", multiline text fields, that do not have TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+	 * password or numeric fields, and others where predictions make no sense.
 	 */
 	public boolean notMindReadableText() {
-		return
-			field == null
-			|| (field.inputType & EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-			|| !isMultilineText()
-			|| isEmail()
-			|| isNumeric()
-			|| isPassword()
-			|| isPersonName()
-			|| isUri();
+		if (field == null) {
+			return true;
+		}
+
+		final boolean noSuggestions = (field.inputType & EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+		boolean noPersonalizedLearning = DeviceInfo.AT_LEAST_ANDROID_10 && (field.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
+
+		if (noSuggestions && !DeviceInfo.AT_LEAST_ANDROID_10) {
+			noPersonalizedLearning = true;
+		}
+
+		return noPersonalizedLearning
+		|| (isMultilineText() && noSuggestions)
+		|| isEmail()
+		|| isNumeric()
+		|| isPassword()
+		|| isPersonName()
+		|| (!isMultilineText() && !isUri()); // allow in URL fields, because they are often used for search
 	}
 
 
@@ -185,6 +229,11 @@ public class InputType extends StandardInputType {
 	 */
 	boolean isMultilineTextInNonSystemApp() {
 		return field != null && !field.packageName.contains("android") && isMultilineText();
+	}
+
+
+	public boolean isOwnSwitchPreviewField() {
+		return isOwnSwitchPreviewField;
 	}
 
 
@@ -239,7 +288,7 @@ public class InputType extends StandardInputType {
 
 
 	/**
-	 * isTeams
+	 * isTeamsInitial
 	 * M$ Teams seems to control the keyboard visibility on its own. Initially, it always reports
 	 * the input fields as TYPE_NULL, but once the keyboard accepts the show request, it switches to
 	 * TYPE_CLASS_TEXT. This method used to enforce us to stay active at all times in Teams.
@@ -247,19 +296,22 @@ public class InputType extends StandardInputType {
 	 * Atom L (Android 11), but not on Energizer H620S (Android 10). The bug report also suggests it
 	 * occurs on newer versions. See: <a href="https://github.com/sspanak/tt9/issues/749">#749</a>.
 	 */
-	public boolean isTeams() {
+	public boolean isTeamsInitial() {
 		return isAppField("com.microsoft.teams", EditorInfo.TYPE_NULL);
 	}
 
 
 	/**
 	 * isWhatsApp
-	 * WhatsApp does not replace the composing text when the current text is an emoji and the new
-	 * text is also an emoji. This hacks detects is, so that we can clear the composing text when it
-	 * starts with an emoji, to allow setting the new emoji.
+	 * WhatsApp fails to replace one graphic character with another in the composing text, due to
+	 * its non-standard InputConnection implementation. This hacks detects the app, so that we can
+	 * clear the composing text when it starts with an emoji, to allow setting a new emoji (or other
+	 * character).
 	 */
 	public boolean isWhatsApp() {
-		return isAppField("com.whatsapp", 180225);
+		return
+			isAppField("com.whatsapp", 180225) // standard chat field
+			|| isAppField("com.whatsapp", 147457); // the "add a caption" field when sharing media
 	}
 
 
@@ -299,6 +351,25 @@ public class InputType extends StandardInputType {
 	@Override
 	public boolean isDefectiveText() {
 		return isDuoLingoReportBug() || isAndroid15ContactsField();
+	}
+
+
+	/**
+	 * isAnyOfApps
+	 * Checks if we are currently connected to one of the listed apps.
+	 */
+	protected boolean isAnyOfApps(@NonNull String[] packageNames) {
+		if (field == null || field.packageName == null) {
+			return false;
+		}
+
+		for (String packageName : packageNames) {
+			if (field.packageName.equals(packageName)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 

@@ -25,13 +25,6 @@ Il caricamento del dizionario può saturare i telefoni di fascia bassa. Quando s
 
 È possibile evitare quanto sopra utilizzando invece la versione "full".
 
-#### Note per Android 13 o versioni successive
-Di default, le notifiche per le nuove app installate sono disabilitate. Si consiglia di abilitarle. In questo modo, si riceverà una notifica quando ci sono aggiornamenti del dizionario e, una volta scelto di installarli, TT9 mostrerà lo stato di caricamento. Gli aggiornamenti vengono rilasciati al massimo una volta al mese, quindi non ci si deve preoccupare di ricevere troppo spam.
-
-È possibile abilitare le notifiche andando su Impostazioni → Lingue e attivando Notifiche del Dizionario.
-
-_Se si decide di tenerle disattivate, TT9 continuerà a funzionare senza problemi, ma sarà necessario gestire i dizionari manualmente._
-
 ## Impostazioni
 Nella schermata delle impostazioni, puoi scegliere le lingue per la digitazione, configurare i tasti rapidi del tastierino, cambiare l'aspetto dell'applicazione o migliorare la compatibilità con il telefono.
 
@@ -119,9 +112,7 @@ Cancella il filtro di suggerimento, se applicato.
 - Quando sono visualizzati i suggerimenti, digita il suggerimento attualmente selezionato.
 - Altrimenti, esegue l'azione predefinita per l'applicazione corrente (ad esempio invia un messaggio, vai a un URL o digita una nuova riga).
 
-_**Nota:** Ogni applicazione decide autonomamente cosa fare quando si preme OK e TT9 non ha alcun controllo su questo._
-
-_**Nota 2:** Per inviare messaggi con OK nelle applicazioni di messaggistica, è necessario abilitare l'impostazione "Invia con INVIO" o una simile. Se l'applicazione non dispone di questa impostazione, probabilmente non supporta l'invio dei messaggi in questo modo. In tal caso, utilizzare l'app KeyMapper dal [Play Store](https://play.google.com/store/apps/details?id=io.github.sds100.keymapper) o da [F-droid](https://f-droid.org/packages/io.github.sds100.keymapper/). KeyMapper può rilevare le app di chat e simulare un tocco sul pulsante di invio del messaggio premendo o tenendo premuto un tasto fisico. Consultare la [guida rapida](https://docs.keymapper.club/quick-start/) per ulteriori informazioni._
+_**Nota:** Per inviare messaggi con il tasto OK nelle applicazioni di chat, andare su Impostazioni → Tastierino, scorrere fino alla sezione «Compatibilità» e attivare «Invia messaggi con OK»._
 
 #### Tasto 0:
 - **In modalità 123:**
@@ -163,6 +154,23 @@ _**Nota 2:** Per inviare messaggi con OK nelle applicazioni di messaggistica, è
 #### Tasto Aggiungi Parola:
 Aggiunge una nuova parola al dizionario per la lingua corrente.
 
+#### Tasto Modifica Parola:
+Modifica la parola in cui si trova il cursore di testo.
+
+In modalità modifica, sono disponibili le seguenti opzioni:
+- **Premi un tasto da 1 a 9:** Sostituisce la lettera attualmente selezionata con un'altra.
+- **Tieni premuto il tasto Sinistra/Destra:** Passa alla lettera precedente/successiva.
+- **Premi il tasto OK:** Continua con la lettera successiva. Se non ci sono altre lettere, la modifica termina, la parola viene salvata e viene aggiunto automaticamente uno spazio dopo (se l'impostazione corrispondente è abilitata).
+- **Premi il tasto Backspace:** Elimina la lettera corrente.
+- **Premi il tasto Filtra:** Duplica la lettera corrente. Ad esempio, se la lettera corrente è "a", premendo Filtra diventa "aa".
+- **Premi il tasto 0:** Termina la modifica e salva la parola.
+
+**Dispositivi touchscreen:**
+- **Tocca una lettera nell'elenco dei suggerimenti:** Equivale a selezionare la lettera e premere OK.
+- **Tocca e tieni premuta l'ultima lettera della parola:** Seleziona la lettera, termina la modifica, ma non aggiunge automaticamente uno spazio dopo.
+
+Puoi anche usare la modalità modifica per digitare nuove parole. Ad esempio, se vuoi digitare "Anakin", che non è presente nel dizionario, premi semplicemente i tasti corrispondenti: 2-6-2-5-4-6. Verrà prodotta una parola senza senso che puoi facilmente trasformare in "Anakin" sostituendo le lettere con quelle corrette.
+
 #### Tasto Backspace (Indietro, Canc, o Backspace):
 Cancella semplicemente il testo.
 
@@ -186,6 +194,9 @@ _Nei campi a soli numeri, cambiare modalità non è possibile. In questi casi, i
 #### Tasto Strumenti degli appunti:
 Mostra il pannello degli strumenti degli appunti, che consente di selezionare, tagliare, copiare e incollare testo. È possibile chiudere il pannello premendo di nuovo il tasto "✱" o, nella maggior parte delle applicazioni, il tasto Indietro. Per maggiori dettagli, vedi [sotto](#strumenti-degli-appunti).
 
+#### Tasto Nascondi Tastiera:
+Nasconde la tastiera. Per mostrarla di nuovo, basta iniziare a digitare oppure toccare un campo di testo o numerico.
+
 #### Tasto Lingua Successiva (Default: tenere premuto #):
 Cambiare la lingua di digitazione quando sono state abilitate più lingue nelle impostazioni.
 
@@ -196,8 +207,16 @@ Apre la finestra di dialogo Cambia Tastiera di Android, dove è possibile selezi
 - **Quando si digita testo:** Passa tra maiuscole e minuscole.
 - **Quando si digitano caratteri speciali con il tasto 0**: Mostra il gruppo di caratteri successivo.
 
+#### Tasto Mostra Emoji:
+_Solo in modalità Predittiva._
+
+Mostra il pannello emoji. È una scorciatoia per premere più volte il tasto 1 in modalità Predittiva.
+
 #### Tasto Mostra Impostazioni:
 Apre la schermata di configurazione Impostazioni. Qui è possibile scegliere le lingue per digitare, configurare i tasti rapidi del tastierino, cambiare l’aspetto dell’applicazione o migliorare la compatibilità con il proprio telefono.
+
+#### Tasto Attiva/Disattiva Modalità Predittiva:
+Passa tra Modalità Predittiva e modalità ABC. In pratica, equivale ad attivare o disattivare la modalità Predittiva.
 
 #### Tasto Annulla:
 Annulla l’ultima azione. Equivale a premere Ctrl+Z su un computer o Cmd+Z su un Mac.
@@ -218,13 +237,14 @@ Mostra un elenco di tutti i comandi (o funzioni).
 Molti telefoni hanno solo due o tre pulsanti "liberi" che possono essere usati come tasti rapidi. Tuttavia, Traditional T9 ha molte più funzioni, il che significa che semplicemente non c’è spazio per tutte sul tastierino. La Tavolozza Comandi risolve questo problema. Permette di invocare le funzioni aggiuntive (o comandi) usando combinazioni di tasti.
 
 Di seguito è riportato un elenco dei comandi possibili:
-- **Mostra la schermata delle impostazioni (Combinazione predefinita: tenere premuto ✱, tasto 1).** Uguale a premere [Mostra Impostazioni](#tasto-mostra-impostazioni).
-- **Aggiungi una parola (Combinazione predefinita: tenere premuto ✱, tasto 2).** Uguale a premere [Aggiungi Parola](#tasto-aggiungi-parola).
+- **Aggiungi una parola (Combinazione predefinita: tenere premuto ✱, tasto 1).** Uguale a premere [Aggiungi Parola](#tasto-aggiungi-parola).
+- **Modifica una parola (Combinazione predefinita: tenere premuto ✱, tasto 2).** Uguale a premere [Modifica Parola](#tasto-modifica-parola).
 - **Input Vocale (Combinazione predefinita: tenere premuto ✱, tasto 3).** Uguale a premere [Input Vocale](#tasto-input-vocale).
 - **Annulla (Combinazione predefinita: tenere premuto ✱, tasto 4).** Uguale a premere [Tasto Annulla](#tasto-annulla).
 - **Strumenti degli appunti (Combinazione predefinita: tenere premuto ✱, tasto 5).** Uguale a premere [Strumenti degli appunti](#tasto-strumenti-degli-appunti).
 - **Ripristina (Combinazione predefinita: tenere premuto ✱, tasto 6).** Uguale a premere [Tasto Ripristina](#tasto-ripristina).
 - **Seleziona una Tastiera Diversa (Combinazione predefinita: tenere premuto ✱, tasto 8).** Uguale a premere [Seleziona Tastiera](#tasto-seleziona-tastiera).
+- **Mostra la schermata delle impostazioni (Combinazione predefinita: tenere premuto ✱, tasto 9).** Uguale a premere [Mostra Impostazioni](#tasto-mostra-impostazioni).
 
 _Questo tasto non fa nulla quando il Layout dello Schermo è impostato su "Tastierino Virtuale" perché tutti i tasti per tutte le funzioni possibili sono già disponibili sullo schermo._
 
@@ -413,8 +433,6 @@ Per attenuare questo problema, vai su Impostazioni → Aspetto e abilita "Icona 
 
 ### Problemi generali sui telefoni Xiaomi
 Xiaomi ha introdotto diverse autorizzazioni non standard sui loro telefoni, che impediscono il corretto funzionamento della tastiera virtuale su schermo di Traditional T9. Più precisamente, i tasti "Mostra Impostazioni" e "Aggiungi Parola" potrebbero non svolgere le rispettive funzioni. Per risolvere questo problema, devi concedere a TT9 i permessi di "Visualizza finestra pop-up" e "Visualizza finestra pop-up in esecuzione in background" dalle impostazioni del telefono. [Questa guida](https://parental-control.flashget.com/how-to-enable-display-pop-up-windows-while-running-in-the-background-on-flashget-kids-on-xiaomi) per un'altra applicazione spiega come fare.
-
-È anche altamente raccomandato concedere l'autorizzazione per la "Notifica permanente". Questa è simile all'autorizzazione per le "Notifiche" introdotta in Android 13. Vedi [sopra](#note-per-android-13-o-versioni-successive) per ulteriori informazioni sul motivo per cui è necessaria.
 
 _I problemi di Xiaomi sono stati discussi in [questa issue su GitHub](https://github.com/sspanak/tt9/issues/490)._
 

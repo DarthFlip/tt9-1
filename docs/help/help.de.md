@@ -25,13 +25,6 @@ Das Laden des Wörterbuchs kann bei leistungsschwachen Geräten zum Absturz füh
 
 Sie können dies vermeiden, indem Sie stattdessen die "Voll"-Version verwenden.
 
-#### Hinweise für Android 13 oder höher
-Für neu installierte Apps sind die Benachrichtigungen standardmäßig deaktiviert. Es wird empfohlen, diese zu aktivieren, um benachrichtigt zu werden, wenn Wörterbuchaktualisierungen verfügbar sind. Sobald Sie sich dafür entscheiden, sie zu installieren, zeigt TT9 den Fortschritt an. Es werden maximal einmal pro Monat neue Updates veröffentlicht, sodass Sie sich keine Sorgen über zu viele Benachrichtigungen machen müssen.
-
-Sie können die Benachrichtigungen aktivieren, indem Sie zu Einstellungen → Sprachen gehen und Wörterbuchbenachrichtigungen aktivieren.
-
-_Wenn Sie sich entscheiden, die Benachrichtigungen deaktiviert zu lassen, funktioniert TT9 weiterhin einwandfrei. Sie müssen jedoch die Wörterbücher manuell verwalten._
-
 ## Einstellungen
 Im Einstellungsbildschirm können Sie Sprachen für die Eingabe wählen, die Hotkeys der Tastatur konfigurieren, das Erscheinungsbild der Anwendung ändern oder die Kompatibilität mit Ihrem Telefon verbessern.
 
@@ -119,9 +112,7 @@ Entfernt den Vorschlagsfilter, falls aktiviert.
 - Wenn Vorschläge angezeigt werden, wird der aktuell ausgewählte Vorschlag getippt.
 - Andernfalls wird die Standardaktion für die aktuelle Anwendung ausgeführt (z. B. eine Nachricht senden, zu einer URL gehen oder eine neue Zeile eingeben).
 
-_**Hinweis:** Jede Anwendung entscheidet selbst, was passiert, wenn OK gedrückt wird, und TT9 hat darauf keinen Einfluss._
-
-_**Hinweis 2:** Um Nachrichten mit OK in Nachrichtenanwendungen zu senden, müssen Sie deren Einstellung „Mit ENTER senden“ oder eine ähnlich benannte Option aktivieren. Wenn die Anwendung keine solche Einstellung hat, unterstützt sie möglicherweise nicht das Senden von Nachrichten auf diese Weise. Verwenden Sie in diesem Fall die App KeyMapper aus dem [Play Store](https://play.google.com/store/apps/details?id=io.github.sds100.keymapper) oder aus [F-droid](https://f-droid.org/packages/io.github.sds100.keymapper/). Diese erkennt Chat-Apps und simuliert beim Drücken oder Halten einer physischer Taste einen Tastendruck auf die Senden-Taste. Weitere Informationen finden Sie im [Schnellstart-Handbuch](https://docs.keymapper.club/quick-start/)._
+_**Hinweis:** Um Nachrichten in Chat-Anwendungen mit der OK-Taste zu senden, gehen Sie zu Einstellungen → Tastenfeld, scrollen Sie zum Abschnitt „Kompatibilität“ und aktivieren Sie „Nachrichten mit OK senden“._
 
 #### 0-Taste:
 - **Im 123 Modus:**
@@ -163,6 +154,23 @@ _**Hinweis 2:** Um Nachrichten mit OK in Nachrichtenanwendungen zu senden, müss
 #### Wort hinzufügen Taste:
 Fügt ein neues Wort zum Wörterbuch für die aktuelle Sprache hinzu.
 
+#### Wort bearbeiten Taste:
+Bearbeitet das Wort, an dem sich der Textcursor befindet.
+
+Im Bearbeitungsmodus haben Sie folgende Optionen:
+- **Taste 1-9 drücken:** Ersetzt den aktuell ausgewählten Buchstaben durch einen anderen.
+- **Links-/Rechts-Taste gedrückt halten:** Zum vorherigen/nächsten Buchstaben wechseln.
+- **OK-Taste drücken:** Zum nächsten Buchstaben wechseln. Wenn keine Buchstaben mehr vorhanden sind, wird die Bearbeitung beendet, das Wort gespeichert und automatisch ein Leerzeichen angehängt (falls die entsprechende Einstellung aktiviert ist).
+- **Rücktaste drücken:** Löscht den aktuellen Buchstaben.
+- **Filtertaste drücken:** Dupliziert den aktuellen Buchstaben. Wenn der aktuelle Buchstabe z. B. "a" ist, wird durch Drücken von Filtern daraus "aa".
+- **0-Taste drücken:** Bearbeitung beenden und Wort speichern.
+
+**Touchscreen-Geräte:**
+- **Auf einen Buchstaben in der Vorschlagsliste tippen:** Entspricht dem Auswählen des Buchstabens und dem Drücken von OK.
+- **Den letzten Buchstaben des Wortes antippen und halten:** Wählt den Buchstaben aus, beendet die Bearbeitung, hängt aber nicht automatisch ein Leerzeichen an.
+
+Sie können den Bearbeitungsmodus auch nutzen, um neue Wörter einzugeben. Wenn Sie z. B. "Anakin" tippen möchten, das nicht im Wörterbuch vorhanden ist, drücken Sie einfach die entsprechenden Tasten: 2-6-2-5-4-6. Dadurch entsteht zunächst ein unsinniges Wort, das Sie durch Ersetzen der Buchstaben leicht in "Anakin" umwandeln können.
+
 #### Rückschritt Taste (Zurück, Löschen oder Rückschritt):
 Löscht Text.
 
@@ -186,6 +194,9 @@ _In reinen Zahlenfeldern ist ein Wechsel des Modus nicht möglich. In solchen F�
 #### Zwischenablage-Werkzeuge Taste:
 Zeigt das Zwischenablage-Werkzeugfeld, mit dem Sie Text auswählen, ausschneiden, kopieren und einfügen können. Sie können das Fenster schließen, indem Sie erneut die „✱“-Taste drücken oder in den meisten Anwendungen die Zurück-Taste drücken. Details sind [unten](#zwischenablage-werkzeuge) verfügbar.
 
+#### Tastatur ausblenden Taste:
+Blendet die Tastatur aus. Um sie wieder anzuzeigen, tippen Sie einfach weiter oder tippen Sie auf ein Text- oder Zahlenfeld.
+
 #### Nächste Sprache Taste (Standard: Halten #):
 Die Eingabesprache ändern, wenn mehrere Sprachen in den Einstellungen aktiviert wurden.
 
@@ -196,8 +207,16 @@ Die Eingabesprache ändern, wenn mehrere Sprachen in den Einstellungen aktiviert
 - **Beim Tippen von Text:** Umschalten zwischen Groß- und Kleinschreibung.
 - **Beim Tippen von Sonderzeichen mit der 0-Taste**: Zeigt die nächste Zeichenkategorie an.
 
+#### Emojis anzeigen Taste:
+_Nur im Prädiktiven Modus._
+
+Öffnet das Emoji-Panel. Eine Abkürzung für mehrfaches Drücken der 1-Taste im prädiktiven Modus.
+
 #### Einstellungen anzeigen Taste:
 Öffnet den Einstellungsbildschirm. Hier können Sie die Sprachen für das Tippen auswählen, die Hotkeys der Tastatur konfigurieren, das Erscheinungsbild der Anwendung ändern oder die Kompatibilität mit Ihrem Telefon verbessern.
+
+#### Prädiktiven Modus umschalten Taste:
+Wechselt zwischen Prädiktivem Modus und ABC-Modus. Entspricht effektiv dem Ein- bzw. Ausschalten des Prädiktiven Modus.
 
 #### Rückgängig-Taste:
 Macht die letzte Aktion rückgängig. Entspricht dem Drücken von Strg+Z auf einem Computer oder Cmd+Z auf einem Mac.
@@ -218,13 +237,14 @@ Zeigt eine Liste aller Befehle (oder Funktionen) an.
 Viele Telefone verfügen nur über zwei oder drei "freie" Tasten, die als Hotkeys verwendet werden können. Traditional T9 hat jedoch viele weitere Funktionen, sodass auf der Tastatur einfach kein Platz für alle vorhanden ist. Die Befehlsübersicht löst dieses Problem. Es ermöglicht das Ausführen zusätzlicher Funktionen (oder Befehle) durch Tastenkombinationen.
 
 Im Folgenden finden Sie eine Liste der möglichen Befehle:
-- **Einstellungsbildschirm anzeigen (Standardkombination: Halten ✱, Taste 1).** Entspricht dem Drücken der Taste [Einstellungen anzeigen](#einstellungen-anzeigen-taste).
-- **Wort hinzufügen (Standardkombination: Halten ✱, Taste 2).** Entspricht dem Drücken der Taste [Wort hinzufügen](#wort-hinzufügen-taste).
+- **Wort hinzufügen (Standardkombination: Halten ✱, Taste 1).** Entspricht dem Drücken der Taste [Wort hinzufügen](#wort-hinzufügen-taste).
+- **Wort bearbeiten (Standardkombination: Halten ✱, Taste 2).** Entspricht dem Drücken der Taste [Wort bearbeiten](#wort-bearbeiten-taste).
 - **Spracheingabe (Standardkombination: Halten ✱, Taste 3).** Entspricht dem Drücken der Taste [Spracheingabe](#spracheingabe-taste).
 - **Rückgängig (Standardkombination: ✱ halten, Taste 4).** Entspricht dem Drücken [Rückgängig-Taste](#rückgängig-taste)
 - **Zwischenablage-Werkzeuge (Standardkombination: Halten ✱, Taste 5).** Entspricht dem Drücken der Taste [Zwischenablage-Werkzeuge](#zwischenablage-werkzeuge-taste).
 - **Wiederholen (Standardkombination: ✱ halten, Taste 6).** Entspricht dem Drücken [Wiederholen-Taste](#wiederholen-taste)
 - **Andere Tastatur auswählen (Standardkombination: Halten ✱, Taste 8).** Entspricht dem Drücken der Taste [Tastatur auswählen](#tastatur-auswählen-taste).
+- **Einstellungsbildschirm anzeigen (Standardkombination: Halten ✱, Taste 9).** Entspricht dem Drücken der Taste [Einstellungen anzeigen](#einstellungen-anzeigen-taste).
 
 _Diese Taste hat keine Funktion, wenn das Bildschirm-Layout auf „Virtuelle Tastatur“ eingestellt ist, da alle Tasten für alle möglichen Funktionen bereits auf dem Bildschirm verfügbar sind._
 
@@ -412,8 +432,6 @@ Um dieses Problem zu lindern, gehen Sie zu Einstellungen → Erscheinungsbild un
 
 ### Allgemeine Probleme auf Xiaomi-Telefonen
 Xiaomi hat mehrere nicht-standardmäßige Berechtigungen eingeführt, die das ordnungsgemäße Funktionieren von Traditional T9s virtueller Bildschirmtastatur verhindern können. Genauer gesagt funktionieren die Tasten „Einstellungen anzeigen“ und „Wort hinzufügen“ möglicherweise nicht wie vorgesehen. Um dies zu beheben, müssen Sie die Berechtigungen „Pop-up-Fenster anzeigen“ und „Pop-up-Fenster im Hintergrund anzeigen“ für TT9 in den Einstellungen Ihres Telefons erteilen. [Dieser Leitfaden](https://parental-control.flashget.com/how-to-enable-display-pop-up-windows-while-running-in-the-background-on-flashget-kids-on-xiaomi) für eine andere Anwendung erklärt, wie Sie dies tun.
-
-Es wird auch dringend empfohlen, die Berechtigung „Dauerhafte Benachrichtigung“ zu erteilen. Dies ähnelt der Benachrichtigungsberechtigung, die in Android 13 eingeführt wurde. Weitere Informationen finden Sie [oben](#hinweise-für-android-13-oder-höher).
 
 _Die Xiaomi-Probleme wurden in [diesem GitHub-Problem](https://github.com/sspanak/tt9/issues/490) besprochen._
 

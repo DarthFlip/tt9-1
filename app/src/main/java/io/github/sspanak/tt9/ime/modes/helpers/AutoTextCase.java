@@ -105,6 +105,11 @@ public class AutoTextCase {
 			return InputMode.CASE_UPPER;
 		}
 
+		final boolean isAfterNewline = beforeCursor != null && settings.getAutoCapitalsAfterNewlineAbc() && beforeCursor.endsWith("\n");
+		if (isAfterNewline) {
+			return InputMode.CASE_CAPITALIZE;
+		}
+
 		final boolean isStartOfText = beforeCursor == null || beforeCursor.isEmpty();
 		final boolean isStartOfSentence = Text.isStartOfSentence(beforeCursor);
 

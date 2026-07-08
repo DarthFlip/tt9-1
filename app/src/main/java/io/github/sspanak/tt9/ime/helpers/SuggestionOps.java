@@ -35,7 +35,7 @@ public class SuggestionOps {
 	@Nullable private StatusBar statusBar;
 
 
-	public SuggestionOps(@Nullable InputMethodService ims, @Nullable SettingsStore settings, @Nullable ResizableMainView mainView, @Nullable AppHacks appHacks, @Nullable InputType inputType, @Nullable TextField textField, @Nullable StatusBar statusBar, @Nullable Consumer<String> onDelayedAccept, @Nullable Runnable onSuggestionClick) {
+	public SuggestionOps(@Nullable InputMethodService ims, @Nullable SettingsStore settings, @Nullable ResizableMainView mainView, @Nullable AppHacks appHacks, @Nullable InputType inputType, @Nullable TextField textField, @Nullable StatusBar statusBar, @Nullable Consumer<String> onDelayedAccept, @Nullable Runnable onSuggestionClick, @Nullable Runnable onSuggestionLongClick) {
 		delayedAcceptHandler = new Handler(Looper.getMainLooper());
 		this.onDelayedAccept = onDelayedAccept != null ? onDelayedAccept : s -> {};
 
@@ -45,8 +45,8 @@ public class SuggestionOps {
 		this.statusBar = statusBar;
 		this.textField = textField != null ? textField : new TextField(ims, settings, null);
 
-		if (settings != null && mainView != null && onSuggestionClick != null) {
-			suggestionBar = new SuggestionsBar(settings, mainView, onSuggestionClick);
+		if (settings != null && mainView != null && onSuggestionClick != null && onSuggestionLongClick != null) {
+			suggestionBar = new SuggestionsBar(settings, mainView, onSuggestionClick, onSuggestionLongClick);
 		}
 	}
 
@@ -106,7 +106,8 @@ public class SuggestionOps {
 	public void addGuesses(@NonNull ArrayList<String> guesses) {
 		setVisibility(settings, isEmpty() && guesses.isEmpty(), !guesses.isEmpty());
 		if (suggestionBar != null) {
-			suggestionBar.prependGuesses(guesses);
+			boolean append = settings != null && settings.getMindReadingSortPredictionsLast();
+			suggestionBar.addMany(guesses, append);
 		}
 	}
 
@@ -221,13 +222,17 @@ public class SuggestionOps {
 	public void commitCurrent(boolean entireSuggestion, boolean clearList) {
 		if (!isEmpty()) {
 			if (entireSuggestion) {
-				if (appHacks == null) {
-					textField.setComposingText(getCurrent());
+				// getCurrent() is somewhat resource-intensive, so we want to minimize the calls to it.
+				// Hence, the more complicated if-else structure
+				final String current = getCurrent();
+				if (textField.getComposingText().equals(current)) {
+					textField.finishComposingText();
 				} else {
-					appHacks.setComposingText(getCurrent());
+					textField.setText(current);
 				}
+			} else {
+				textField.finishComposingText();
 			}
-			textField.finishComposingText();
 		}
 
 

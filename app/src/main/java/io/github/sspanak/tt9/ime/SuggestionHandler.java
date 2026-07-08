@@ -43,14 +43,16 @@ abstract public class SuggestionHandler extends TypingHandler {
 
 
 	@Override
-	protected void onFinishTyping() {
+	protected void onFinishTyping(boolean willExitInput) {
 		if (suggestionHandler != null) {
 			suggestionHandler.removeCallbacksAndMessages(null);
 			suggestionHandler = null;
 		}
 
+		suggestionOps.cancelDelayedAccept();
+		suggestionOps.clear();
 		mindReader.clearContext();
-		super.onFinishTyping();
+		super.onFinishTyping(willExitInput);
 	}
 
 
@@ -83,7 +85,7 @@ abstract public class SuggestionHandler extends TypingHandler {
 	}
 
 
-	protected void onAcceptSuggestionManually(String word, int fromKey) {
+	public void onAcceptSuggestionManually(String word, int fromKey) {
 		mInputMode.onAcceptSuggestion(word);
 		if (Clipboard.contains(word)) {
 			Clipboard.copy(this, word);
@@ -121,7 +123,7 @@ abstract public class SuggestionHandler extends TypingHandler {
 	 * is still loading. Note that onComplete is called even if the loading was skipped.
 	 */
 	@Override
-	protected void getSuggestions(double loadingId, @Nullable String currentWord, @Nullable Runnable onComplete) {
+	public void getSuggestions(double loadingId, @Nullable String currentWord, @Nullable Runnable onComplete) {
 		// `activeInputMode` reflects whichever pipeline (QWERTY vs T9) most recently fed
 		// input; we read predictions from it so the strip shows the right candidates. Callers
 		// set activeInputMode before invoking us.
@@ -140,7 +142,7 @@ abstract public class SuggestionHandler extends TypingHandler {
 
 
 	@WorkerThread
-	protected void handleSuggestionsAsync() {
+	public void handleSuggestionsAsync() {
 		handleSuggestionsAsync(0, null);
 	}
 
@@ -326,17 +328,17 @@ abstract public class SuggestionHandler extends TypingHandler {
 		}
 
 		suggestionOps.cancelDelayedAccept();
-		// Only preview the top guess in the composing region if the user hasn't started typing
-		// the next word yet. Race: guessNextWord fires async on space commit; if user taps
-		// letters before the callback returns, setComposingText(topGuess) would clobber those
-		// letters (and their own composing preview), producing chimeric text like "good momoffrew"
-		// where "mo" was the user's input and "ffrew" was the tail of a next-word guess. Also
-		// skip on QWERTY entirely — Gboard convention is to show next-word predictions only in
-		// the strip, not to preview them in the text field where a stray tap would commit them.
-		if (composingWord.isEmpty() && activeInputMode != qwertyInputMode) {
+		suggestionOps.addGuesses(guesses);
+		// Preview the top guess in the composing region, but only when it's both safe and wanted:
+		//  - composingWord empty: the user hasn't started typing the next word yet. Otherwise the
+		//    async guessNextWord callback would clobber in-progress letters, producing chimeric
+		//    text like "good momoffrew" (user typed "mo", guess tail "ffrew").
+		//  - not the QWERTY pipeline: Gboard convention shows next-word predictions only in the
+		//    strip, never previewed in the text field where a stray tap would commit them.
+		//  - MindReader isn't configured to sort predictions last (upstream v62 setting).
+		if (composingWord.isEmpty() && activeInputMode != qwertyInputMode && !settings.getMindReadingSortPredictionsLast()) {
 			appHacks.setComposingText(guesses.get(0));
 		}
-		suggestionOps.addGuesses(guesses);
 
 		return true;
 	}
