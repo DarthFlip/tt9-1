@@ -14,6 +14,7 @@ public class AutoTextCase {
 	@NonNull private final Sequences sequences;
 	@NonNull private final SettingsStore settings;
 	private final boolean isSpecialized;
+	private final boolean wantsSentenceCaps;
 	private boolean skipNext;
 
 
@@ -26,6 +27,10 @@ public class AutoTextCase {
 				|| inputType.isSpecialized()
 				|| (inputType.isUs() && !inputType.isOwnTestField())
 			);
+		// Honor the field's TYPE_TEXT_FLAG_CAP_SENTENCES declaration. Default to true when
+		// the field is null or non-text so pre-existing behavior is preserved on non-text
+		// fields (numbers, phones) where CAP_SENTENCES is irrelevant anyway.
+		wantsSentenceCaps = inputType == null || inputType.wantsSentenceCaps();
 		skipNext = false;
 	}
 
@@ -107,7 +112,7 @@ public class AutoTextCase {
 			return InputMode.CASE_LOWER;
 		}
 
-		if (isStartOfText || isStartOfSentence) {
+		if ((isStartOfText || isStartOfSentence) && wantsSentenceCaps) {
 			return InputMode.CASE_CAPITALIZE;
 		}
 
@@ -149,12 +154,15 @@ public class AutoTextCase {
 		// start of text
 		String before = beforeCursor == null && textField != null ? textField.getStringBeforeCursor() : beforeCursor;
 		if (before == null || before.isEmpty() || (settings.getAutoCapitalsAfterNewline() && before.endsWith("\n"))) {
-			return InputMode.CASE_CAPITALIZE;
+			// Fields that cleared CAP_SENTENCES (URL bars, code editors, "no auto-caps" chat
+			// apps) don't want IME-driven caps even at start of text. Return DICTIONARY so the
+			// dictionary's own casing wins (typically lowercase for common words).
+			return wantsSentenceCaps ? InputMode.CASE_CAPITALIZE : InputMode.CASE_DICTIONARY;
 		}
 
 		// start of sentence, excluding after "..."
 		if (Text.isStartOfSentence(before)) {
-			return InputMode.CASE_CAPITALIZE;
+			return wantsSentenceCaps ? InputMode.CASE_CAPITALIZE : InputMode.CASE_DICTIONARY;
 		}
 
 		// 1. Stay in lowercase within the same sentence, in case the user has selected lowercase.

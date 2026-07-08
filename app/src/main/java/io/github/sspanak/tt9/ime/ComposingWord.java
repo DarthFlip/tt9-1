@@ -61,6 +61,16 @@ public class ComposingWord {
 	}
 
 	/**
+	 * True if the token at [position] is an ambiguous T9 digit (the user pressed a T9 key but
+	 * hasn't committed to a specific letter). Out-of-range positions return false.
+	 */
+	public boolean isPositionAmbiguous(int position) {
+		if (position < 0 || position >= tokens.size()) return false;
+		return !tokens.get(position).locked;
+	}
+
+
+	/**
 	 * True if any locks exist past the leading contiguous prefix. When true, callers should
 	 * post-filter tt9's suggestions via {@link #matches(String)} because the stem alone cannot
 	 * express the trailing locks.

@@ -77,7 +77,24 @@ public class TraditionalT9 extends PremiumHandler {
 
 	@Override
 	public void onStartInputView(EditorInfo inputField, boolean restarting) {
+		// Auto-hide can leave the keys panel collapsed (after the user typed physically). On
+		// EVERY IME-show, reset it BEFORE delegating to onStart — which may return early on a
+		// restart and skip initUi where the existing showKeyboard() restore lives. Without this,
+		// the user sees blank space where the keyboard should be after switching modes.
+		if (mainView != null) mainView.setKeysCollapsed(false);
 		onStart(inputField, restarting);
+	}
+
+
+	@Override
+	public void onWindowShown() {
+		super.onWindowShown();
+		// Belt-and-braces: tapping the SAME text field again doesn't always fire
+		// onStartInputView (framework treats it as "already focused"), so the collapsed-state
+		// reset above doesn't run. onWindowShown is called every time the IME window becomes
+		// visible — reset here so a user who collapsed via physical typing can re-show simply
+		// by re-tapping the field.
+		if (mainView != null) mainView.setKeysCollapsed(false);
 	}
 
 
@@ -86,6 +103,11 @@ public class TraditionalT9 extends PremiumHandler {
 		super.onFinishInputView(finishingInput);
 		onFinishTyping();
 	}
+
+
+	// (Removed) resetToPredictiveOnQwerty — was a workaround for the QWERTY pipeline drifting
+	// out of Predictive when the user cycled `mInputMode` via #. With the QWERTY pipeline now
+	// using its own `qwertyInputMode` instance (always Predictive), there's nothing to reset.
 
 
 	@Override

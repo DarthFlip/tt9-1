@@ -30,7 +30,19 @@ class GlideTypingGesture {
 
 		companion object {
 			private const val MAX_DETECT_TIME = 500
-			private const val VELOCITY_THRESHOLD = 0.10 // dp per ms
+			// Engagement threshold — half what florisboard ships (0.10) so users who spell out
+			// a word at ~5cm/s still get recognised as gliding instead of falling through to
+			// per-key taps.
+			private const val VELOCITY_THRESHOLD = 0.05 // dp per ms
+			// Distance-only fallback: even if the user pauses mid-swipe (velocity drops), once
+			// the finger has travelled this far from the down point we know it's a gesture.
+			private const val DISTANCE_FALLBACK_MULTIPLIER = 1.5f
+			// Minimum time from ACTION_DOWN before we'll consider a motion a glide.
+			// Below this, the finger clearly hasn't had time to gesture — the sample is
+			// noise from finger-landing or a very fast tap that only registers a single ~5ms
+			// MOVE burst. Matches Gboard's engagement floor
+			// (AbstractGestureMotionEventHandler.s() uses a similar lower bound).
+			private const val MIN_ENGAGEMENT_TIME_MS = 20L
 		}
 
 		private fun px2dp(px: Float): Float = px / density
@@ -49,7 +61,7 @@ class GlideTypingGesture {
 					val pointerIndex = event.actionIndex
 					pointerId = event.getPointerId(pointerIndex)
 					pointerData.apply {
-						positions.add(Position(event.getX(pointerIndex), event.getY(pointerIndex)))
+						positions.add(Position(event.getX(pointerIndex), event.getY(pointerIndex), event.eventTime))
 						startTime = System.currentTimeMillis()
 					}
 					return false
@@ -60,20 +72,35 @@ class GlideTypingGesture {
 					val pointerIndex = event.findPointerIndex(pointerId)
 					for (i in 0..event.historySize) {
 						val pos = when (i) {
-							event.historySize -> Position(event.getX(pointerIndex), event.getY(pointerIndex))
-							else -> Position(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
+							event.historySize -> Position(event.getX(pointerIndex), event.getY(pointerIndex), event.eventTime)
+							else -> Position(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i), event.getHistoricalEventTime(i))
 						}
 						pointerData.positions.add(pos)
 						if (pointerData.isActuallyGesture == null) {
 							val dist = px2dp(pointerData.positions[0].dist(pos))
 							val time = (System.currentTimeMillis() - pointerData.startTime) + 1
-							if (dist > keySizeDp && (dist / time) > VELOCITY_THRESHOLD) {
+							// Two engagement paths:
+							//   1. Fast enough swipe: distance > 1 key + velocity > threshold.
+							//   2. Far enough swipe regardless of speed (user paused mid-glide):
+							//      distance > 1.5× key. Pure distance, no velocity gate.
+							val velocityOk = dist > keySizeDp && (dist / time) > VELOCITY_THRESHOLD
+							val distanceOk = dist > keySizeDp * DISTANCE_FALLBACK_MULTIPLIER
+							val dwellOk = time >= MIN_ENGAGEMENT_TIME_MS
+							if (dwellOk && (velocityOk || distanceOk)) {
 								pointerData.isActuallyGesture = true
+								io.github.sspanak.tt9.util.Logger.d(
+									"tt9/Glide",
+									"detector engaged: dist=${dist}dp velocityOk=$velocityOk distanceOk=$distanceOk time=${time}ms bufferedPoints=${pointerData.positions.size}"
+								)
 								pointerData.positions.take(pointerData.positions.size - 1).forEach { point ->
 									listeners.forEach { it.onGlideAddPoint(point) }
 								}
 							} else if (time > MAX_DETECT_TIME) {
 								pointerData.isActuallyGesture = false
+								io.github.sspanak.tt9.util.Logger.d(
+									"tt9/Glide",
+									"detector timed out: dist=${dist}dp time=${time}ms — treated as tap"
+								)
 							}
 						}
 
@@ -124,7 +151,12 @@ class GlideTypingGesture {
 			var isActuallyGesture: Boolean? = null,
 		)
 
-		data class Position(val x: Float, val y: Float) {
+		/**
+		 * @param t wall-clock `MotionEvent.eventTime`. Required by the neural decoder for
+		 *          real-velocity feature extraction; defaults to 0 for callers that haven't
+		 *          been updated to thread it through.
+		 */
+		data class Position(val x: Float, val y: Float, val t: Long = 0L) {
 			fun dist(p2: Position): Float = sqrt((p2.x - x).pow(2) + (p2.y - y).pow(2))
 		}
 	}

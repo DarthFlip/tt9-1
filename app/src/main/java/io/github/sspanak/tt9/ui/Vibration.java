@@ -8,17 +8,39 @@ import androidx.annotation.Nullable;
 
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
 import io.github.sspanak.tt9.ui.main.keys.BaseClickableKey;
-import io.github.sspanak.tt9.ui.main.keys.SoftKeyNumber;
 import io.github.sspanak.tt9.util.Logger;
 import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
-public record Vibration(@NonNull SettingsStore settings, @Nullable View view) {
+public final class Vibration {
+	@NonNull private final SettingsStore settings;
+	@Nullable private final View view;
+
+	public Vibration(@NonNull SettingsStore settings, @Nullable View view) {
+		this.settings = settings;
+		this.view = view;
+	}
+
+	@NonNull public SettingsStore settings() { return settings; }
+	@Nullable public View view() { return view; }
+
 	public static int getNoVibration() {
 		return -1;
 	}
 
 	public static int getPressVibration(BaseClickableKey key) {
-		return key instanceof SoftKeyNumber ? HapticFeedbackConstants.KEYBOARD_TAP : HapticFeedbackConstants.VIRTUAL_KEY;
+		// Pick the lightest soft-keyboard-tuned haptic available. KEYBOARD_PRESS (API 30+)
+		// is the tight, short pattern Android specifically tunes for soft-keyboard taps —
+		// noticeably less mushy than VIRTUAL_KEY, which was the default for non-number keys
+		// and made every QWERTY tap feel laggy on devices with a basic vibrator motor.
+		// KEYBOARD_TAP is the API-8.1 fallback (its own constant since 8.1, aliased to
+		// VIRTUAL_KEY before that), and VIRTUAL_KEY remains the floor for pre-8.1.
+		if (DeviceInfo.AT_LEAST_ANDROID_11) {
+			return HapticFeedbackConstants.KEYBOARD_PRESS;
+		}
+		if (DeviceInfo.AT_LEAST_ANDROID_8_1) {
+			return HapticFeedbackConstants.KEYBOARD_TAP;
+		}
+		return HapticFeedbackConstants.VIRTUAL_KEY;
 	}
 
 	public static int getHoldVibration() {

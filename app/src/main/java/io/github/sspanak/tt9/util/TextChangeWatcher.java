@@ -7,10 +7,14 @@ import androidx.annotation.Nullable;
 
 import java.util.function.Consumer;
 
-public record TextChangeWatcher(Consumer<Editable> onChange) implements TextWatcher {
+public final class TextChangeWatcher implements TextWatcher {
+	private final Consumer<Editable> onChange;
+
 	public TextChangeWatcher(@Nullable Consumer<Editable> onChange) {
 		this.onChange = onChange;
 	}
+
+	public Consumer<Editable> onChange() { return onChange; }
 
 	@Override
 	public void afterTextChanged(Editable s) {

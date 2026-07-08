@@ -54,6 +54,13 @@
 			app:key="version_info"
 			app:title="@string/app_name" />
 
+		<Preference
+			app:key="neural_credit"
+			app:icon="@android:drawable/ic_menu_info_details"
+			app:title="@string/pref_neural_credit_title"
+			app:summary="@string/pref_neural_credit_summary"
+			app:selectable="false" />
+
 	</PreferenceCategory>
 
 </PreferenceScreen>

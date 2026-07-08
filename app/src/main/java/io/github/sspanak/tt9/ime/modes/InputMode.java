@@ -169,6 +169,7 @@ abstract public class InputMode {
 	public boolean isTyping() { return !digitSequence.isEmpty(); }
 	public int getFirstKey() { return digitSequence.isEmpty() ? -1 : digitSequence.charAt(0) - '0'; }
 	public int getSequenceLength() { return digitSequence.length(); } // The number of key presses for the current word.
+	@NonNull public String getDigitSequence() { return digitSequence; } // The full T9 digit sequence for the current word (read-only view).
 	public int getAutoAcceptTimeout() { return autoAcceptTimeout; }
 	public void setSequence(@NonNull String sequence) { digitSequence = sequence; }
 
@@ -198,6 +199,18 @@ abstract public class InputMode {
 	public void reset() {
 		autoAcceptTimeout = -1;
 		suggestions = new ArrayList<>();
+	}
+
+	/**
+	 * Mark this InputMode's underlying prediction pipeline as belonging to the on-screen
+	 * QWERTY layer (as opposed to the T9 physical keypad). Subclasses that own a
+	 * WordPredictions instance override to forward the flag; the default is a no-op so it's
+	 * safe to call on any InputMode. Used by TypingHandler after allocating `qwertyInputMode`
+	 * so QWERTY-only ranking enhancements (bigram-context boost, seed injection) know to
+	 * fire.
+	 */
+	public InputMode markAsQwertyPipeline() {
+		return this;
 	}
 
 	// recomposing

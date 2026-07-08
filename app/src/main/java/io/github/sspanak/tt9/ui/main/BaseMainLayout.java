@@ -326,6 +326,25 @@ abstract public class BaseMainLayout {
 	}
 
 
+	/**
+	 * Collapse the keys panel while leaving the IME service / suggestion strip alive. Used by the
+	 * physical-keypad auto-hide flow — flipping a child View's visibility (instead of calling
+	 * {@code requestHideSelf}) avoids the {@code onFinishInputView} lifecycle that would otherwise
+	 * tear down ModeWords state and swallow the in-progress keypress.
+	 *
+	 * Default no-op. Layouts with a soft-key panel override.
+	 */
+	public void setKeysCollapsed(boolean collapsed) { }
+
+
+	/**
+	 * Whether the keys panel is currently collapsed (default false for layouts without the
+	 * sticky-collapse flow). The {@code #}-key cycle reads this so on-screen-open is a virtual
+	 * cycle position alongside the physical T9 / ABC / 123 modes.
+	 */
+	public boolean isKeysCollapsed() { return false; }
+
+
 	abstract void showCommandPalette();
 	abstract void showKeyboard();
 	abstract void showTextEditingPalette();

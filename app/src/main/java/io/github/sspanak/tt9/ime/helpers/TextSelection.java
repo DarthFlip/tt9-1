@@ -40,6 +40,22 @@ public class TextSelection {
 	}
 
 
+	/**
+	 * Move the cursor [delta] positions (negative = left, positive = right). Used by the
+	 * long-press-space → cursor-drag gesture. Clamps at the start of the buffer; the OS clamps
+	 * at the end naturally because setSelection ignores positions past the text length.
+	 */
+	public void moveCursor(int delta) {
+		if (delta == 0) return;
+		InputConnection connection = getConnection();
+		if (connection == null) return;
+		int target = Math.max(0, currentEnd + delta);
+		connection.setSelection(target, target);
+		currentStart = target;
+		currentEnd = target;
+	}
+
+
 	public void clear() {
 		InputConnection connection = getConnection();
 		if (connection != null) {

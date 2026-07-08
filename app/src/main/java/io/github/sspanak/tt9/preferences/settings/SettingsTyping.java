@@ -35,11 +35,17 @@ class SettingsTyping extends SettingsPunctuation {
 	public boolean getAutoSpacePredictive() { return prefs.getBoolean("auto_space_predictive", true); }
 	public boolean getAutoTextCasePredictive() { return prefs.getBoolean("auto_text_case_predictive", true); }
 	public boolean getAutoCapitalsAfterNewline() {
-		return getAutoTextCasePredictive() && prefs.getBoolean("auto_capitals_after_newline", false);
+		// Default ON. Standard messaging-app expectation: capital letter at the start of a new
+		// line, just like at the start of a sentence. Tied to auto-text-case-predictive being on
+		// (which it already is by default).
+		return getAutoTextCasePredictive() && prefs.getBoolean("auto_capitals_after_newline", true);
 	}
 
 	public boolean getAutoMindReading() {
-		return prefs.getBoolean("auto_mind_reading", false);
+		// Default ON. MindReader supplies next-word predictions based on context — without it,
+		// suggestions ignore what the user typed before. No reason for an average user to want
+		// this off; power users can disable in settings if they don't like the autocompletion feel.
+		return prefs.getBoolean("auto_mind_reading", true);
 	}
 
 	public boolean getAutoTrimTrailingSpace() {
@@ -60,7 +66,10 @@ class SettingsTyping extends SettingsPunctuation {
 	}
 
 	public boolean getBackspaceAcceleration() {
-		return prefs.getBoolean("backspace_acceleration", false);
+		// Default ON. Holding backspace deletes word-at-a-time once the user holds long enough,
+		// vs character-at-a-time. Faster cleanup after a wrong-word commit, which on this IME
+		// happens more than on Gboard because swipe accuracy is ~75-85% (vs 95%+).
+		return prefs.getBoolean("backspace_acceleration", true);
 	}
 
 	public boolean getBackspaceRecomposing() {
@@ -96,6 +105,19 @@ class SettingsTyping extends SettingsPunctuation {
 	}
 
 	public boolean getShowSuggestions() {
+		// On the QWERTY on-screen layout, suggestions are ALWAYS on — the QWERTY pipeline
+		// uses its own qwertyInputMode which is always Predictive, independent of whatever
+		// `getInputMode()` (mInputMode / T9-side) is currently cycled to. Without this gate,
+		// pressing # to cycle T9 into ABC would silently hide the QWERTY strip. We check the
+		// layout preference directly (inlined here because isMainLayoutQwerty lives on the
+		// SettingsUI subclass, not accessible from this base).
+		final int currentLayout = getStringifiedInt(
+			io.github.sspanak.tt9.preferences.screens.appearance.DropDownLayoutType.NAME,
+			-1
+		);
+		if (currentLayout == SettingsUI.LAYOUT_QWERTY) {
+			return true;
+		}
 		final int inputMode = getInputMode();
 		final boolean showInAbc = prefs.getBoolean("show_suggestions_abc", false);
 

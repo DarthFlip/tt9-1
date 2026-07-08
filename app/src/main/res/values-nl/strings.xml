@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="app_settings">TT9 Opties</string>
+	<string name="pref_neural_credit_title">Veegtypen</string>
+	<string name="pref_neural_credit_summary">Engels gebruikt de neurale CleverKeys-decoder (GPL-3.0); andere talen gebruiken de statistische terugval</string>
 	<string name="loading">Laden…</string>
 	<string name="error_unexpected">Er is een onverwachte fout opgetreden.</string>
 

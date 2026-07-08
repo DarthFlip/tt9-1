@@ -45,8 +45,14 @@ public class SettingsUI extends SettingsTyping {
 
 		DEFAULT_LARGE_LAYOUT = LAYOUT_NUMPAD;
 
+		// tt9 fork default: QWERTY is the on-screen swipe-friendly layout, so it makes the
+		// most sense out-of-the-box for touchscreen devices. The upstream defaults (TRAY for
+		// hardware-keyboard devices, SMALL for backspace-less, NUMPAD for no-keyboard) stay
+		// for the edge cases — but if there's a touchscreen, prefer QWERTY.
 		if (DeviceInfo.noKeyboard(context)) {
 			DEFAULT_LAYOUT = DEFAULT_LARGE_LAYOUT;
+		} else if (!DeviceInfo.noTouchScreen(context)) {
+			DEFAULT_LAYOUT = LAYOUT_QWERTY;
 		} else if (DeviceInfo.noBackspaceKey() && !DeviceInfo.noTouchScreen(context)) {
 			DEFAULT_LAYOUT = LAYOUT_SMALL;
 		} else {
@@ -110,6 +116,16 @@ public class SettingsUI extends SettingsTyping {
 
 	public boolean getHapticFeedback() {
 		return prefs.getBoolean(SwitchHapticFeedback.NAME, SwitchHapticFeedback.DEFAULT);
+	}
+
+	/**
+	 * Subtle audio key-tap. Default OFF — most users find it annoying, but it's standard
+	 * affordance on stock Android keyboards and the Gboard-on-MegaLife target should expose
+	 * the option. Plays a system click via View.playSoundEffect(SoundEffectConstants.KEYBOARD_TAP)
+	 * — no SoundPool / bundled asset needed.
+	 */
+	public boolean getSoundFeedback() {
+		return prefs.getBoolean("pref_sound_feedback", false);
 	}
 
 	public int getAlignment() {

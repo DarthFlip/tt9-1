@@ -7,8 +7,12 @@ apply from: 'build-definitions.gradle'
 apply from: 'build-dictionaries.gradle'
 apply from: 'validate-languages.gradle'
 apply from: 'help-tools.gradle'
+apply from: 'bundle-bigram-seed.gradle'
 apply from: 'status-icon-tools.gradle'
 apply from: 'version-tools.gradle'
+// (Removed) apply from: 'download-neural-model.gradle' — the neural swipe decoder was
+// retired in favor of the statistical SHARK² classifier. The ORT model files it guarded
+// have been deleted from assets/models/.
 
 
 tasks.register('validateLanguages') {
@@ -113,6 +117,13 @@ android {
 		// F-droid hacks
 		dependenciesInfo.includeInApk = false
 		vectorDrawables.generatedDensities = []
+
+		// ONNX Runtime ships native libs for 4 ABIs (~73 MB combined). Target devices in
+		// scope are armeabi-v7a (Schok F1) and arm64-v8a (modern Android phones). Drop x86
+		// and x86_64 — only emulators need those — to keep the lite APK under ~30 MB.
+		ndk {
+			abiFilters 'armeabi-v7a', 'arm64-v8a'
+		}
 	}
 
 	buildTypes {
@@ -146,16 +157,34 @@ android {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'false'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 		lite {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'false'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 		premium {
 			dimension 'app'
 			buildConfigField 'Boolean', 'LITE', 'true'
 			buildConfigField 'Boolean', 'PREMIUM', 'true'
+			// Neural decoder OFF: armv7 CleverKeys integration produced close-but-wrong
+			// results that capped at maybe 60% accuracy with 2-3s latency, plus 12MB ONNX
+			// runtime in the IME process caused tap-typing lag. Statistical decoder (with
+			// the 8 SHARK² tunings being added) is the realistic path on this hardware.
+			// Flip back to true for experiments.
+			buildConfigField 'Boolean', 'HAS_NEURAL_DECODER', 'false'
 		}
 	}
 
@@ -204,4 +233,9 @@ dependencies {
 	implementation 'androidx.preference:preference:1.2.1'
 	implementation 'com.google.android.material:material:1.13.0'
 	premiumImplementation 'com.android.billingclient:billing:8.3.0'
+
+	// (Removed) com.microsoft.onnxruntime:onnxruntime-android — the neural swipe decoder was
+	// retired in favor of the SHARK² statistical classifier, which works well on armv7
+	// without the ~12 MB native runtime + ~10 MB model assets that ONNX brought along. If
+	// neural decoding is revisited, restore: implementation 'com.microsoft.onnxruntime:onnxruntime-android:<version>'
 }

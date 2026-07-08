@@ -18,3 +18,9 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+
+# ONNX Runtime — NeuralGlideDecoder reaches it via Class.forName / Method reflection
+# so R8 has no static call-graph evidence to keep these. Without this rule the
+# release build strips OrtEnvironment / OrtSession / OnnxTensor and the decoder
+# silently no-ops.
+-keep class ai.onnxruntime.** { *; }

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="app_settings">Настройки на TT9</string>
+	<string name="pref_neural_credit_title">Плъзгане за писане</string>
+	<string name="pref_neural_credit_summary">Английският използва невронен декодер CleverKeys (GPL-3.0); другите езици — статистическия резервен вариант</string>
 	<string name="pref_font_size_large">Голям</string>
 	<string name="completed">Завършено</string>
 	<string name="loading">Зареждане…</string>

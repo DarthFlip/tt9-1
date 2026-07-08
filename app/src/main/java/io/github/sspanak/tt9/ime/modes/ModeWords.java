@@ -58,6 +58,22 @@ class ModeWords extends ModeCheonjiin {
 	}
 
 
+	/**
+	 * Forward the QWERTY-pipeline marker down to the owned WordPredictions. The parent
+	 * ModeCheonjiin has an identical implementation which we'd inherit — but an audit
+	 * suggested the inheritance wasn't dispatching in some cases (turned out to be a false
+	 * alarm) so we make the override explicit here for clarity. Idempotent alongside the
+	 * inherited version; the WordPredictions setter just re-writes a boolean.
+	 */
+	@Override
+	public InputMode markAsQwertyPipeline() {
+		if (predictions instanceof WordPredictions) {
+			((WordPredictions) predictions).setQwertyOnly(true);
+		}
+		return this;
+	}
+
+
 	@Override
 	public boolean onBackspace() {
 		isCursorDirectionForward = false;

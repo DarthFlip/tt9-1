@@ -9,10 +9,14 @@
 	<dimen name="key_text_size">21dp</dimen>
 
 	<!-- Status Bar -->
-	<dimen name="status_bar_text_size">16sp</dimen>
+	<dimen name="status_bar_text_size">17sp</dimen>
 
 	<!-- Main Small -->
-	<dimen name="main_small_suggestion_spacing_horizontal">6sp</dimen>
+	<!-- Suggestion strip item spacing — bumped 6sp → 14sp for Gboard-style breathing room.
+	     The old 6sp packed suggestions so tightly they read as one continuous string with
+	     pipe dividers; 14sp lets each candidate stand on its own and gives a comfortable
+	     tap target between items. -->
+	<dimen name="main_small_suggestion_spacing_horizontal">14sp</dimen>
 
 	<dimen name="main_small_main_key_wrapper_height">46dp</dimen> <!-- key height + margin -->
 	<dimen name="main_small_main_key_wrapper_extra_height_for_messenger">50dp</dimen> <!-- empirically found the correct amount -->
@@ -65,7 +69,15 @@
 	<dimen name="numpad_suggestion_height">40sp</dimen>
 	<dimen name="numpad_suggestion_min_width">36sp</dimen>
 
-	<!-- Qwerty on-screen keyboard -->
-	<dimen name="qwerty_row_height">46dp</dimen>
-	<dimen name="qwerty_key_text_size">18sp</dimen>
+	<!-- Qwerty on-screen keyboard. The number row was clipping the bottom row on the F1 across
+	     multiple host apps regardless of how much we shrank the row heights — the IME area on
+	     the F1 (under chat apps with their own bottom action bars) is smaller than the
+	     plan assumed. Number row removed; 56dp letter rows (224dp total — proven to fit
+	     before the number row landed). Numbers stay accessible via the existing ?123 symbol
+	     panel. If a future re-add of the number row happens, gate it on screen-height
+	     detection so larger phones get it but the F1 doesn't. -->
+	<dimen name="qwerty_row_height">56dp</dimen>
+	<dimen name="qwerty_number_row_height">0dp</dimen>
+	<dimen name="qwerty_key_text_size">19sp</dimen>
+	<dimen name="qwerty_number_text_size">12sp</dimen>
 </resources>

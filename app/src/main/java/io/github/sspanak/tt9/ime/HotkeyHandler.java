@@ -438,8 +438,27 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return false;
 		}
 
+		// # always cycles `mInputMode` (the T9 keypad's input mode). The on-screen QWERTY
+		// pipeline uses its own `qwertyInputMode` instance, so cycling here has no effect on
+		// QWERTY behavior — the strip stays Predictive while the user is tapping letters.
+		// This is the clean version of the visibility-gated short-circuit we used to need.
+
 		if (validateOnly) {
 			return true;
+		}
+
+		// When the on-screen QWERTY panel is currently expanded, collapse it first. This is
+		// the user-requested "# closes the keyboard AND cycles modes" affordance: pressing #
+		// on the physical keypad gets the on-screen panel out of the way so the T9 keypad
+		// workflow takes over. The cycle logic below still runs so the user sees the mode
+		// change (via status icon / status bar) and their next physical-key input uses it.
+		// Re-expand via the existing tap-to-expand gesture on the collapsed strip. Prior
+		// version of this affordance was pulled because we didn't have a reliable
+		// tap-to-expand path; that's since landed in MainLayoutQwerty.wireTapToExpand.
+		if (settings.isMainLayoutQwerty()
+				&& mainView != null
+				&& !mainView.isKeysCollapsed()) {
+			mainView.setKeysCollapsed(true);
 		}
 
 		suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout()); // restart the timer

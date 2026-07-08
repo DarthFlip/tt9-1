@@ -15,6 +15,14 @@ interface WordProvider {
 
 	/** Frequency score in [0, 1]; higher = more common. Unknown words should return ~0. */
 	fun getFrequencyForWord(word: String): Float
+
+	/**
+	 * Returns the word the user previously preferred over [rejected] (lowercase) when both
+	 * surfaced together in the past, or null if no such pair has been learned. Used by the
+	 * classifier to swap (rejected, preferred) when both appear in the top-K so the learning
+	 * signal actually affects ranking. Default implementation is a no-op.
+	 */
+	fun getConfusedPreferred(rejected: String): String? = null
 }
 
 /** No-op fallback so the classifier never NPEs when no provider has been wired yet. */

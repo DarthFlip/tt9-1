@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import io.github.sspanak.tt9.R;
 import io.github.sspanak.tt9.db.words.DictionaryLoader;
 import io.github.sspanak.tt9.ime.helpers.SuggestionOps;
+import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
 import io.github.sspanak.tt9.ui.UI;
 import io.github.sspanak.tt9.util.Text;
@@ -121,14 +122,17 @@ abstract public class SuggestionHandler extends TypingHandler {
 	 */
 	@Override
 	protected void getSuggestions(double loadingId, @Nullable String currentWord, @Nullable Runnable onComplete) {
-		if (InputModeKind.isPredictive(mInputMode) && DictionaryLoader.isRunning()) {
-			mInputMode.reset();
+		// `activeInputMode` reflects whichever pipeline (QWERTY vs T9) most recently fed
+		// input; we read predictions from it so the strip shows the right candidates. Callers
+		// set activeInputMode before invoking us.
+		if (InputModeKind.isPredictive(activeInputMode) && DictionaryLoader.isRunning()) {
+			activeInputMode.reset();
 			UI.toastShortSingle(this, R.string.dictionary_loading_please_wait);
 			if (onComplete != null) {
 				onComplete.run();
 			}
 		} else {
-			mInputMode
+			activeInputMode
 				.setOnSuggestionsUpdated(() -> handleSuggestionsAsync(loadingId, onComplete))
 				.loadSuggestions(currentWord == null ? suggestionOps.getCurrent() : currentWord);
 		}
@@ -151,20 +155,27 @@ abstract public class SuggestionHandler extends TypingHandler {
 
 	@MainThread
 	protected void handleSuggestions(double loadingId, @Nullable Runnable onComplete) {
+		// Read from `activeInputMode` (set by the entry point that triggered the load), not
+		// `mInputMode` directly — so handleSuggestions works for both the QWERTY pipeline
+		// (where activeInputMode = qwertyInputMode) and the T9 pipeline (mInputMode).
+		final InputMode source = activeInputMode;
 		// Second pass, analyze the available suggestions and decide if combining them with the
 		// last key press makes up a compound word like: (it)'s, (I)'ve, l'(oiseau), or it is
 		// just the end of a sentence, like: "word." or "another?"
 		String[] surroundingText = null;
-		if (mInputMode.shouldAcceptPreviousSuggestion(suggestionOps.getCurrent())) {
+		if (source.shouldAcceptPreviousSuggestion(suggestionOps.getCurrent())) {
 			surroundingText = onAcceptPreviousSuggestion();
 		}
 
-		final ArrayList<String> suggestions = mInputMode.getSuggestions();
-		suggestionOps.set(suggestions, mInputMode.getRecommendedSuggestionIdx(), mInputMode.containsGeneratedSuggestions());
+		// Step E: drop candidates that violate any non-contiguous lock in the shared composing
+		// buffer (e.g. user typed T9 "234" then tapped QWERTY "h" — we keep words with 'h' at
+		// position 3). No-op when there are no locks past an ambiguous T9 digit.
+		final ArrayList<String> suggestions = filterByComposingWord(source.getSuggestions());
+		suggestionOps.set(suggestions, source.getRecommendedSuggestionIdx(), source.containsGeneratedSuggestions());
 
 		// either accept the first one automatically (when switching from punctuation to text
 		// or vice versa), or schedule auto-accept in N seconds (in ABC mode)
-		if (suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout())) {
+		if (suggestionOps.scheduleDelayedAccept(source.getAutoAcceptTimeout())) {
 			if (onComplete != null) {
 				onComplete.run();
 			}
@@ -176,14 +187,14 @@ abstract public class SuggestionHandler extends TypingHandler {
 		// (the count of key presses), for a more intuitive experience.
 		String trimmedWord;
 
-		if (InputModeKind.isRecomposing(mInputMode)) {
+		if (InputModeKind.isRecomposing(source)) {
 			// highlight the current letter, when editing a word
-			trimmedWord = mInputMode.getWordStem() + suggestionOps.getCurrent();
-			appHacks.setComposingTextPartsWithHighlightedJoining(trimmedWord, mInputMode.getRecomposingSuffix());
+			trimmedWord = source.getWordStem() + suggestionOps.getCurrent();
+			appHacks.setComposingTextPartsWithHighlightedJoining(trimmedWord, source.getRecomposingSuffix());
 		} else {
 			// or highlight the stem, when filtering
-			trimmedWord = suggestionOps.getCurrent(mLanguage, mInputMode.getSequenceLength());
-			appHacks.setComposingTextWithHighlightedStem(trimmedWord, mInputMode.getWordStem(), mInputMode.isStemFilterFuzzy());
+			trimmedWord = suggestionOps.getCurrent(mLanguage, source.getSequenceLength());
+			appHacks.setComposingTextWithHighlightedStem(trimmedWord, source.getWordStem(), source.isStemFilterFuzzy());
 		}
 
 		// append guesses from the MindReader
@@ -253,8 +264,13 @@ abstract public class SuggestionHandler extends TypingHandler {
 	}
 
 
+	/** Last word given to MindReader's guess() — kept on the worker thread for emoji injection
+	 *  in handleGuesses. Reset each call to guessNextWord. */
+	private volatile String lastGuessContextWord = "";
+
 	@Override
 	protected void guessNextWord(@NonNull String[] surroundingText, @Nullable String lastWord) {
+		lastGuessContextWord = lastWord == null ? "" : lastWord;
 		mindReader
 			.setTextCase(mInputMode.getTextCaseRaw())
 			.setLanguage(mLanguage)
@@ -273,12 +289,53 @@ abstract public class SuggestionHandler extends TypingHandler {
 	@MainThread
 	private boolean handleGuesses() {
 		final ArrayList<String> guesses = mindReader.getGuesses();
+		// QWERTY-only: merge seeded next-word candidates from QwertyBigramSeed. This fixes the
+		// cold-start problem where MindReader has no learned bigrams yet and the strip stays
+		// empty after a space commit on a fresh install. Gated on `activeInputMode ==
+		// qwertyInputMode` so T9's next-word rendering stays byte-identical. User-learned
+		// guesses always win ties — seed entries are appended after MindReader's.
+		if (activeInputMode == qwertyInputMode
+				&& mLanguage != null
+				&& mLanguage.getCode() != null
+				&& lastGuessContextWord != null
+				&& !lastGuessContextWord.isEmpty()) {
+			final java.util.List<String> seeded =
+				io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.getNextWordsAfter(mLanguage.getCode(), lastGuessContextWord, 5);
+			for (String s : seeded) {
+				if (s == null || s.isEmpty()) continue;
+				boolean already = false;
+				for (String g : guesses) {
+					if (g != null && g.equalsIgnoreCase(s)) {
+						already = true;
+						break;
+					}
+				}
+				if (!already) guesses.add(s);
+			}
+		}
+		// Predictive emoji: when the word just committed has a relevant emoji, inject it at
+		// position 1 (NEVER position 0 — the top guess gets written into the composing region
+		// via appHacks.setComposingText below, and rendering an emoji there would be weird).
+		// Skip if MindReader returned nothing so we don't render an emoji-only strip.
+		final String emoji = EmojiPredictions.lookup(lastGuessContextWord);
+		if (emoji != null && !guesses.isEmpty() && !guesses.contains(emoji)) {
+			guesses.add(1, emoji);
+		}
 		if (guesses.isEmpty()) {
 			return false;
 		}
 
 		suggestionOps.cancelDelayedAccept();
-		appHacks.setComposingText(guesses.get(0));
+		// Only preview the top guess in the composing region if the user hasn't started typing
+		// the next word yet. Race: guessNextWord fires async on space commit; if user taps
+		// letters before the callback returns, setComposingText(topGuess) would clobber those
+		// letters (and their own composing preview), producing chimeric text like "good momoffrew"
+		// where "mo" was the user's input and "ffrew" was the tail of a next-word guess. Also
+		// skip on QWERTY entirely — Gboard convention is to show next-word predictions only in
+		// the strip, not to preview them in the text field where a stray tap would commit them.
+		if (composingWord.isEmpty() && activeInputMode != qwertyInputMode) {
+			appHacks.setComposingText(guesses.get(0));
+		}
 		suggestionOps.addGuesses(guesses);
 
 		return true;
