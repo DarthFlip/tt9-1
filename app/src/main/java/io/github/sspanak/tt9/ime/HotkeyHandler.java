@@ -447,12 +447,20 @@ public abstract class HotkeyHandler extends CommandHandler {
 			return true;
 		}
 
-		// Originally tried to include "QWERTY open" as a virtual cycle position alongside the
-		// input modes — but it caused the bug where pressing # collapsed the keys and the user
-		// couldn't get them back when the same text field was re-tapped (framework doesn't fire
-		// onStartInputView on re-focus of the same field). # now only cycles input modes
-		// (T9 → ABC → 123 → loop). Keyboard visibility is controlled by the auto-hide-on-
-		// physical pattern + tap-to-expand affordance + Settings dropdown.
+		// When the on-screen QWERTY panel is currently expanded, collapse it first. This is
+		// the user-requested "# closes the keyboard AND cycles modes" affordance: pressing #
+		// on the physical keypad gets the on-screen panel out of the way so the T9 keypad
+		// workflow takes over. The cycle logic below still runs so the user sees the mode
+		// change (via status icon / status bar) and their next physical-key input uses it.
+		// Re-expand via the existing tap-to-expand gesture on the collapsed strip. Prior
+		// version of this affordance was pulled because we didn't have a reliable
+		// tap-to-expand path; that's since landed in MainLayoutQwerty.wireTapToExpand.
+		if (settings.isMainLayoutQwerty()
+				&& mainView != null
+				&& !mainView.isKeysCollapsed()) {
+			mainView.setKeysCollapsed(true);
+		}
+
 		suggestionOps.scheduleDelayedAccept(mInputMode.getAutoAcceptTimeout()); // restart the timer
 		final int nextModeId = nextInputMode();
 		if (nextModeId != mInputMode.getId()) {

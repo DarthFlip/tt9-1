@@ -131,7 +131,16 @@ public class WordPredictions extends Predictions {
 		ArrayList<String> newWords = new ArrayList<>();
 		suggestStem(newWords);
 		dbWords = localeWordsSorter.shouldSort(stem, digitSequence) ? localeWordsSorter.sort(dbWords) : dbWords;
-		dbWords = rearrangeByPairFrequency(dbWords);
+		// rearrangeByPairFrequency is T9-shaped: it consults the WordPair table (populated by
+		// T9 typing history) to resolve textonym ambiguity between candidates that share a
+		// digit sequence. On the QWERTY pipeline every letter is unambiguous, so pair-frequency
+		// reranking just shuffles candidates in ways that feel arbitrary from a Gboard-style
+		// lens ("feels like T9 mode even with on-screen keyboard"). The seeded bigram-context
+		// boost below is the QWERTY-appropriate reranking. T9 path is unchanged because
+		// `qwertyOnly` stays false on mInputMode's WordPredictions.
+		if (!isQwertyOnly()) {
+			dbWords = rearrangeByPairFrequency(dbWords);
+		}
 		suggestMissingWords(generatePossibleStemVariations(dbWords), newWords);
 		// QWERTY-tap path (stem length matches digit sequence length: the user typed exact
 		// letters, no ambiguity): the T9 SQLite query is biased toward exact-length textonyms,
