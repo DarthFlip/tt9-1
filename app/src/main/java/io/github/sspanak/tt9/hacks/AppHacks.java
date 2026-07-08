@@ -83,9 +83,13 @@ public class AppHacks {
 
 
 	public void setComposingTextWithHighlightedStem(@NonNull String word, @Nullable String stem, boolean isStemFilterFuzzy) {
+		// The stem region used to be rendered bold (visually calling out the letters the user
+		// actually typed vs. auto-completed). Users read that as an unwanted style change on the
+		// text they were composing — so the region is now underlined-only, matching the rest of
+		// the composing word.
 		final HighlightedText highText =
 			new HighlightedText(word, true, false)
-			.setRegion(0, stem != null ? stem.length() : 0, true, isStemFilterFuzzy, false);
+			.setRegion(0, stem != null ? stem.length() : 0, false, isStemFilterFuzzy, false);
 
 		setComposingText(highText);
 	}

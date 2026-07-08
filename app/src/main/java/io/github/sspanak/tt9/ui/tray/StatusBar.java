@@ -118,14 +118,6 @@ public class StatusBar {
 
 
 	public void setText(InputMode inputMode) {
-		// QWERTY on-screen layout is mode-less by design (per user direction). The QWERTY
-		// pipeline runs on its own qwertyInputMode (always Predictive), so a mode indicator
-		// would just be redundant "[ English ]" noise. Hide it on QWERTY; show on T9 layouts
-		// where the indicator reflects whichever mode the user has cycled via #.
-		if (settings.isMainLayoutQwerty()) {
-			setText("");
-			return;
-		}
 		setText("[ " + inputMode.toString() + " ]");
 	}
 

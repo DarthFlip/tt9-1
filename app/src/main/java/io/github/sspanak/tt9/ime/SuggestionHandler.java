@@ -326,7 +326,16 @@ abstract public class SuggestionHandler extends TypingHandler {
 		}
 
 		suggestionOps.cancelDelayedAccept();
-		appHacks.setComposingText(guesses.get(0));
+		// Only preview the top guess in the composing region if the user hasn't started typing
+		// the next word yet. Race: guessNextWord fires async on space commit; if user taps
+		// letters before the callback returns, setComposingText(topGuess) would clobber those
+		// letters (and their own composing preview), producing chimeric text like "good momoffrew"
+		// where "mo" was the user's input and "ffrew" was the tail of a next-word guess. Also
+		// skip on QWERTY entirely — Gboard convention is to show next-word predictions only in
+		// the strip, not to preview them in the text field where a stray tap would commit them.
+		if (composingWord.isEmpty() && activeInputMode != qwertyInputMode) {
+			appHacks.setComposingText(guesses.get(0));
+		}
 		suggestionOps.addGuesses(guesses);
 
 		return true;
