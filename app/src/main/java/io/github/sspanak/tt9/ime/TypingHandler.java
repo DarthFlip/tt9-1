@@ -3,6 +3,8 @@ package io.github.sspanak.tt9.ime;
 import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
 
 import androidx.annotation.NonNull;
@@ -79,6 +81,15 @@ public abstract class TypingHandler extends KeyPadHandler {
 	 * QWERTY path already added a LOCKED letter for the same position.
 	 */
 	private boolean suppressComposingDigitAppend = false;
+
+	/**
+	 * Timestamp of the last space commit (uptimeMillis). Used by the smart-period rule to
+	 * only convert double-space to ". " if the two spaces landed within
+	 * {@link ViewConfiguration#getDoubleTapTimeout()} of each other. Long pauses between
+	 * spaces indicate the user paused, not double-tapped, so we leave both spaces intact.
+	 * Reset to 0 whenever a non-space text event fires.
+	 */
+	private long lastSpaceCommitMs = 0L;
 
 	// language
 	protected ArrayList<Integer> mEnabledLanguages;
@@ -782,11 +793,21 @@ public abstract class TypingHandler extends KeyPadHandler {
 		clearGlideRejectionArm();
 
 		// Smart-period: double-tapping space at the end of a word should commit ". " (period
-		// + space) instead of a redundant second space. Standard Gboard behavior. Only fires
-		// when the char immediately before the cursor is a space AND the char before THAT is
-		// alphanumeric — guards against firing inside code/URL contexts or when the user
-		// genuinely wants a double-space.
-		if (" ".equals(text) && mLanguage != null) {
+		// + space) instead of a redundant second space. Standard Gboard behavior. Guards:
+		//   1. Skip on URL / password / email / limited fields — same set already used by
+		//      AutoSpace so the two rules stay consistent. Prevents ". " from replacing the
+		//      space in a URL, password, or code field where the user genuinely wanted a
+		//      raw double-space.
+		//   2. Skip if the two spaces landed more than getDoubleTapTimeout() apart. Without
+		//      this, "foo <5s pause> <space>" replaces the pause-space with a period.
+		//   3. Char before the first space must be alphanumeric (existing guard).
+		final long nowMs = SystemClock.uptimeMillis();
+		if (" ".equals(text)
+				&& mLanguage != null
+				&& !inputType.isSpecialized()
+				&& !inputType.isLimited()
+				&& lastSpaceCommitMs != 0L
+				&& nowMs - lastSpaceCommitMs <= ViewConfiguration.getDoubleTapTimeout()) {
 			final String beforeCursor = textField.getStringBeforeCursor(2);
 			if (beforeCursor != null && beforeCursor.length() == 2
 					&& beforeCursor.charAt(1) == ' '
@@ -794,6 +815,13 @@ public abstract class TypingHandler extends KeyPadHandler {
 				textField.deleteChars(mLanguage, 1);
 				text = ". ";
 			}
+		}
+		// Track when this space commit lands, so a subsequent one can compare against it. Reset
+		// on any non-space text so an unrelated char between two spaces breaks the timing chain.
+		if (" ".equals(text)) {
+			lastSpaceCommitMs = nowMs;
+		} else {
+			lastSpaceCommitMs = 0L;
 		}
 
 		String[] surroundingChars;

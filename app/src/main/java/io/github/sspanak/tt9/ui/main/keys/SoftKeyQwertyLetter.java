@@ -11,13 +11,37 @@ import io.github.sspanak.tt9.ui.Vibration;
 public class SoftKeyQwertyLetter extends SoftKeyText {
 	private String keyChar = "";
 
-	public SoftKeyQwertyLetter(Context context) { super(context); }
-	public SoftKeyQwertyLetter(Context context, AttributeSet attrs) { super(context, attrs); init(); }
-	public SoftKeyQwertyLetter(Context context, AttributeSet attrs, int defStyleAttr) { super(context, attrs, defStyleAttr); init(); }
+	public SoftKeyQwertyLetter(Context context) { super(context); isSwipeable = true; }
+	public SoftKeyQwertyLetter(Context context, AttributeSet attrs) { super(context, attrs); isSwipeable = true; init(); }
+	public SoftKeyQwertyLetter(Context context, AttributeSet attrs, int defStyleAttr) { super(context, attrs, defStyleAttr); isSwipeable = true; init(); }
 
 	private void init() {
 		CharSequence text = getText();
 		keyChar = text == null ? "" : text.toString();
+	}
+
+
+	/**
+	 * Disable swipe-X detection. We only turn on {@code isSwipeable} so
+	 * {@link #getHoldDurationThreshold()} takes effect (BaseSwipeableKey uses its own
+	 * long-press timer only in the swipeable path). We don't actually want swipe gestures
+	 * to engage on letter keys — small horizontal drift during a deliberate tap should
+	 * NOT cancel our custom 300ms long-press timer. Glide typing already runs at the
+	 * container level and doesn't need per-key swipe support.
+	 */
+	@Override
+	protected float getSwipeXThreshold() {
+		return Integer.MAX_VALUE;
+	}
+
+
+	/**
+	 * Disable swipe-Y detection. Same reasoning as {@link #getSwipeXThreshold()} —
+	 * vertical drift shouldn't cancel long-press.
+	 */
+	@Override
+	protected float getSwipeYThreshold() {
+		return Integer.MAX_VALUE;
 	}
 
 	@Override
@@ -98,6 +122,27 @@ public class SoftKeyQwertyLetter extends SoftKeyText {
 
 	@Override
 	public boolean isHoldEnabled() {
+		return true;
+	}
+
+
+	/**
+	 * Long-press threshold on QWERTY letter keys — 300 ms, matching Gboard. Android's default
+	 * {@code ViewConfiguration.getLongPressTimeout()} is 500 ms, which was measurably sluggish
+	 * for the letter-hold-for-uppercase / digit-hold-for-shift-symbol affordances users engage
+	 * many times per typing session. Other keys (backspace has its own fast-delete tuning,
+	 * space long-press is cursor-drag, ?123/ABC is instant) keep their existing thresholds.
+	 */
+	@Override
+	protected float getHoldDurationThreshold() {
+		return 300f;
+	}
+
+
+	/** Enable the dwell-gated release-vibrate — a deliberate press-and-lift on a letter
+	 *  key gets a second confirming haptic click. Quick taps stay single-buzz. */
+	@Override
+	protected boolean isReleaseVibrateEnabled() {
 		return true;
 	}
 

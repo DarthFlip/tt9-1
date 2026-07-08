@@ -37,6 +37,12 @@ class GlideTypingGesture {
 			// Distance-only fallback: even if the user pauses mid-swipe (velocity drops), once
 			// the finger has travelled this far from the down point we know it's a gesture.
 			private const val DISTANCE_FALLBACK_MULTIPLIER = 1.5f
+			// Minimum time from ACTION_DOWN before we'll consider a motion a glide.
+			// Below this, the finger clearly hasn't had time to gesture — the sample is
+			// noise from finger-landing or a very fast tap that only registers a single ~5ms
+			// MOVE burst. Matches Gboard's engagement floor
+			// (AbstractGestureMotionEventHandler.s() uses a similar lower bound).
+			private const val MIN_ENGAGEMENT_TIME_MS = 20L
 		}
 
 		private fun px2dp(px: Float): Float = px / density
@@ -79,7 +85,8 @@ class GlideTypingGesture {
 							//      distance > 1.5× key. Pure distance, no velocity gate.
 							val velocityOk = dist > keySizeDp && (dist / time) > VELOCITY_THRESHOLD
 							val distanceOk = dist > keySizeDp * DISTANCE_FALLBACK_MULTIPLIER
-							if (velocityOk || distanceOk) {
+							val dwellOk = time >= MIN_ENGAGEMENT_TIME_MS
+							if (dwellOk && (velocityOk || distanceOk)) {
 								pointerData.isActuallyGesture = true
 								io.github.sspanak.tt9.util.Logger.d(
 									"tt9/Glide",

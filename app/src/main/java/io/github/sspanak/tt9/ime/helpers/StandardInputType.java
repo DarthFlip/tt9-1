@@ -133,8 +133,46 @@ abstract public class StandardInputType {
 
 	abstract public boolean isDefectiveText();
 
-	private boolean isNoSuggestionsText() {
+	public boolean isNoSuggestionsText() {
 		return isText() && (field.inputType & InputType.TYPE_MASK_FLAGS & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+	}
+
+
+	/**
+	 * True when the current text field wants IME-driven sentence-start capitalization.
+	 *
+	 * The tricky part: Android CAP_* flags default to 0 (not set), and there's no
+	 * "explicitly off" bit. If we strictly required CAP_SENTENCES to be set (Gboard's
+	 * behavior via {@code TextUtils.getCapsMode}), plain {@code <EditText>} fields —
+	 * the majority of chat/text apps — would silently lose auto-caps. That's more
+	 * regression than users would tolerate for the "one specific code editor stops
+	 * over-capping" win.
+	 *
+	 * Compromise: honor explicit signals; default true when uncertain.
+	 *   - CAP_SENTENCES set → yes.
+	 *   - CAP_WORDS or CAP_CHARACTERS set (and no CAP_SENTENCES) → the app was
+	 *     explicit about caps and didn't include sentence caps → no.
+	 *   - NO_SUGGESTIONS set → typically code/URL editors → no.
+	 *   - Otherwise → yes (backward-compatible with plain EditText).
+	 *
+	 * Non-text fields (numbers, phones) return true — sentence caps is irrelevant there
+	 * and we don't want to suppress it via this check.
+	 */
+	public boolean wantsSentenceCaps() {
+		if (field == null || !isText()) {
+			return true;
+		}
+		final int t = field.inputType;
+		if ((t & InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) == InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) {
+			return true;
+		}
+		if ((t & (InputType.TYPE_TEXT_FLAG_CAP_WORDS | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)) != 0) {
+			return false;
+		}
+		if ((t & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) {
+			return false;
+		}
+		return true;
 	}
 
 	public boolean isMultilineText() {
