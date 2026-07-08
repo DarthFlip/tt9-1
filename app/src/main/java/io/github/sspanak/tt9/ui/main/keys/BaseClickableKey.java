@@ -3,7 +3,6 @@ package io.github.sspanak.tt9.ui.main.keys;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -35,16 +34,6 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 	private float downX = 0f;
 	private float downY = 0f;
 	private int tapSlopPx = 0;
-
-	// Timestamp of last ACTION_DOWN (uptimeMillis). Used by the dwell-gated release-vibrate
-	// on ACTION_UP: only fire the release haptic if the finger stayed on the key long enough
-	// that the user's press was clearly deliberate (not a rapid tap). Matches Gboard's
-	// PressEffectPlayer.b(view, i=1) behavior — release-vibrate is gated on a dwell threshold.
-	private long lastPressMs = 0L;
-	/** Minimum ACTION_DOWN → ACTION_UP dwell (ms) before we consider the press "deliberate"
-	 *  and fire a release haptic. 90ms sits comfortably above quick-tap latency (~30-50ms)
-	 *  and below any long-press threshold (300ms on QWERTY letters). Empirically Gboard-ish. */
-	private static final long RELEASE_VIBRATE_DWELL_MS = 90L;
 
 
 	public BaseClickableKey(Context context) {
@@ -95,7 +84,6 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 		if (action == MotionEvent.ACTION_DOWN) {
 			downX = event.getX();
 			downY = event.getY();
-			lastPressMs = SystemClock.uptimeMillis();
 			if (tapSlopPx <= 0) {
 				// 1.5× standard touch slop — generous enough to absorb finger wobble on a real
 				// tap, tight enough to recognise a swipe through this key as not-a-tap. Pulled
@@ -123,33 +111,12 @@ public class BaseClickableKey extends com.google.android.material.button.Materia
 					// suppressed swipes. Subclasses override to supply their keyChar; default
 					// no-op for non-letter keys.
 					recordTouchOffset(downX, downY);
-					// Dwell-gated release-vibrate. Only fires for subclasses that opt in
-					// (isReleaseVibrateEnabled) AND when the finger stayed on the key long
-					// enough to look intentional. Quick taps get a single press-haptic; a
-					// deliberate press-and-lift gets a second confirming click on lift.
-					// Matches Gboard's release-haptic gating.
-					if (isReleaseVibrateEnabled()
-							&& SystemClock.uptimeMillis() - lastPressMs > RELEASE_VIBRATE_DWELL_MS) {
-						vibrate(Vibration.getReleaseVibration());
-					}
 				}
 				lastPressedKey = ignoreLastPressedKey ? -1 : getId();
 				return result;
 			}
 			repeat = false;
 		}
-		return false;
-	}
-
-
-	/**
-	 * Opt-in for the dwell-gated release-vibrate in {@link #onTouch}'s ACTION_UP handler.
-	 * Subclasses override to true when a deliberate press-and-lift should confirm with a
-	 * release haptic (letter keys, space bar). Default false — historically many keys
-	 * intentionally have their own release-vibrate policies (backspace, ?123/ABC toggle)
-	 * and enabling this here would double up.
-	 */
-	protected boolean isReleaseVibrateEnabled() {
 		return false;
 	}
 
