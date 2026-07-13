@@ -13,6 +13,7 @@ import java.util.function.Consumer;
 
 import io.github.sspanak.tt9.hacks.AppHacks;
 import io.github.sspanak.tt9.hacks.InputType;
+import io.github.sspanak.tt9.languages.HebrewSofit;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageKind;
 import io.github.sspanak.tt9.preferences.settings.SettingsStore;
@@ -33,6 +34,10 @@ public class SuggestionOps {
 	@NonNull private TextField textField;
 	@Nullable private final SettingsStore settings;
 	@Nullable private StatusBar statusBar;
+	// Latched by setLanguage so commitCurrent knows whether to apply Hebrew/Yiddish sofit
+	// conversion at commit time. The strip-tap accept path lands here (via acceptCurrent),
+	// which is why the TypingHandler.onText hook alone isn't sufficient.
+	@Nullable private Language language;
 
 
 	public SuggestionOps(@Nullable InputMethodService ims, @Nullable SettingsStore settings, @Nullable ResizableMainView mainView, @Nullable AppHacks appHacks, @Nullable InputType inputType, @Nullable TextField textField, @Nullable StatusBar statusBar, @Nullable Consumer<String> onDelayedAccept, @Nullable Runnable onSuggestionClick, @Nullable Runnable onSuggestionLongClick) {
@@ -52,6 +57,7 @@ public class SuggestionOps {
 
 
 	public void setLanguage(@Nullable Language newLanguage) {
+		this.language = newLanguage;
 		if (suggestionBar != null) {
 			suggestionBar.setRTL(LanguageKind.isRTL(newLanguage));
 		}
@@ -224,13 +230,24 @@ public class SuggestionOps {
 			if (entireSuggestion) {
 				// getCurrent() is somewhat resource-intensive, so we want to minimize the calls to it.
 				// Hence, the more complicated if-else structure
-				final String current = getCurrent();
+				final String rawCurrent = getCurrent();
+				// Hebrew/Yiddish sofit conversion: strip-tap of a literal-prefix suggestion
+				// ("שלומ", no dictionary match) would otherwise commit the regular-form trailing
+				// letter. Also applied to dictionary matches (idempotent when they're already
+				// sofit-correct). Handled here rather than in TypingHandler.onText because this
+				// commit path never goes through onText.
+				final String current = HebrewSofit.appliesTo(language)
+					? HebrewSofit.applyFinalForm(rawCurrent)
+					: rawCurrent;
 				if (textField.getComposingText().equals(current)) {
 					textField.finishComposingText();
 				} else {
 					textField.setText(current);
 				}
 			} else {
+				// entireSuggestion=false → commits whatever is currently in the composing region,
+				// which TypingHandler.onText has already sofit-normalized on the Hebrew space-
+				// commit path. Nothing extra needed here.
 				textField.finishComposingText();
 			}
 		}

@@ -112,6 +112,15 @@ abstract public class CommandHandler extends TextEditingHandler {
 			.getInstance(settings, mLanguage, inputType, textField, determineInputModeId())
 			.copy(mInputMode);
 
+		// QWERTY-side predictions instance captures `mLanguage` by reference at construction,
+		// so cycling English → Hebrew leaves qwertyInputMode still querying the English
+		// dictionary unless we rebuild it here alongside mInputMode.
+		refreshQwertyInputMode();
+		// activeInputMode was holding a reference to the now-stale mInputMode / qwertyInputMode.
+		// Re-point at the fresh instance so the getSuggestions() call below (which reads
+		// activeInputMode) queries the newly-selected language.
+		activeInputMode = settings.isMainLayoutQwerty() ? qwertyInputMode : mInputMode;
+
 		if (mInputMode.isTyping()) {
 			getSuggestions(0, null, this::onAfterLanguageChange);
 		} else {

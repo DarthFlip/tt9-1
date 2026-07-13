@@ -47,7 +47,21 @@ public class SoftKeyQwertyInputMode extends SoftKeyLF4 {
 	@Override
 	@NonNull
 	protected String getTitle() {
-		return isSymbolsPanelVisible() ? "ABC" : "?123";
+		if (!isSymbolsPanelVisible()) {
+			return "?123";
+		}
+		// On the symbols panel, the label indicates "tap to return to letters" — using the
+		// current-language code (Hebrew "אב", Yiddish "יי", English "EN"/"ABC") instead of a
+		// hardcoded "ABC" so Hebrew/Yiddish users don't see a Latin abbreviation.
+		if (tt9 != null && tt9.getLanguage() != null) {
+			final String code = tt9.getLanguage().getCode();
+			if (code != null && !code.isEmpty()) {
+				// English keeps the Gboard-standard "ABC" affordance; other languages show
+				// their unique code from LocaleCompat.
+				return "en".equalsIgnoreCase(code) ? "ABC" : code;
+			}
+		}
+		return "ABC";
 	}
 
 	// getCornerIcon: inherit the parent's behavior — show the next-language icon at top-right

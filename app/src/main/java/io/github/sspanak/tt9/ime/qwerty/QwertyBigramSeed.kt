@@ -38,9 +38,23 @@ object QwertyBigramSeed {
 	 * caller is on main and the map size is large. For the current 6.6k-row English asset the
 	 * load is under 50 ms on the F1.
 	 */
+	/**
+	 * Some `Language.getCode()` values are Hebrew/Yiddish display abbreviations ("אב", "יי")
+	 * rather than ISO codes. Non-ASCII asset filenames are risky across AAPT versions, so map
+	 * to a clean ISO code for both the in-memory cache key and the asset path. Non-Hebrew
+	 * callers pass through unchanged.
+	 */
+	private fun normalizeLangCode(code: String): String {
+		return when (code) {
+			"אב" -> "iw"
+			"יי" -> "ji"
+			else -> code.lowercase()
+		}
+	}
+
 	@JvmStatic
 	fun ensureLoaded(context: Context, languageCode: String) {
-		val key = languageCode.lowercase()
+		val key = normalizeLangCode(languageCode)
 		if (loaded.containsKey(key)) return
 		synchronized(loadLock) {
 			if (loaded.containsKey(key)) return
@@ -61,7 +75,7 @@ object QwertyBigramSeed {
 	@JvmStatic
 	fun getNextWordsAfter(languageCode: String, word1: String, max: Int): List<String> {
 		if (word1.isEmpty() || max <= 0) return emptyList()
-		val langMap = loaded[languageCode.lowercase()] ?: return emptyList()
+		val langMap = loaded[normalizeLangCode(languageCode)] ?: return emptyList()
 		val entries = langMap[word1.lowercase()] ?: return emptyList()
 		return if (entries.size <= max) entries.map { it.first } else entries.take(max).map { it.first }
 	}
@@ -73,7 +87,7 @@ object QwertyBigramSeed {
 	 */
 	@JvmStatic
 	fun contains(languageCode: String, word1: String, word2: String): Boolean {
-		val langMap = loaded[languageCode.lowercase()] ?: return false
+		val langMap = loaded[normalizeLangCode(languageCode)] ?: return false
 		val entries = langMap[word1.lowercase()] ?: return false
 		val target = word2.lowercase()
 		for ((w, _) in entries) {
@@ -83,34 +97,57 @@ object QwertyBigramSeed {
 	}
 
 	private fun loadFromAsset(context: Context, languageCode: String): Map<String, List<Pair<String, Int>>> {
-		val assetName = "$ASSET_DIR/${languageCode}_bigrams.tsv.gz"
+		// languageCode here is already normalized (ensureLoaded normalizes before calling).
+		// AAPT decompresses .gz assets at build time and strips the extension — the file lands
+		// in the APK as `<lang>_bigrams.tsv` (raw text, then ZIP-compressed by AAPT). We try
+		// the plain .tsv name first; if for some flavor it stays gzipped (older AGP, explicit
+		// noCompress config), fall back to the .gz name with a GZIPInputStream wrapper.
 		val map = HashMap<String, ArrayList<Pair<String, Int>>>()
 		val start = System.currentTimeMillis()
+		val plainName = "$ASSET_DIR/${languageCode}_bigrams.tsv"
+		val gzName = "$ASSET_DIR/${languageCode}_bigrams.tsv.gz"
+		val assets = context.applicationContext.assets
+		val (assetName, isGzipped) = when {
+			assetExists(assets, plainName) -> plainName to false
+			assetExists(assets, gzName) -> gzName to true
+			else -> {
+				Logger.w(LOG_TAG, "No bigram asset for $languageCode (tried $plainName and $gzName).")
+				return emptyMap()
+			}
+		}
 		try {
-			context.applicationContext.assets.open(assetName).use { raw ->
-				GZIPInputStream(raw).use { gz ->
-					BufferedReader(InputStreamReader(gz, Charsets.UTF_8)).use { reader ->
-						while (true) {
-							val line = reader.readLine() ?: break
-							if (line.isEmpty()) continue
-							// TSV: word1 \t word2 \t T9-sequence \t frequency
-							val parts = line.split('\t')
-							if (parts.size < 4) continue
-							val w1 = parts[0]
-							val w2 = parts[1]
-							val freq = parts[3].toIntOrNull() ?: continue
-							val list = map.getOrPut(w1) { ArrayList(4) }
-							list.add(w2 to freq)
-						}
+			assets.open(assetName).use { raw ->
+				val stream: java.io.InputStream = if (isGzipped) GZIPInputStream(raw) else raw
+				BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+					while (true) {
+						val line = reader.readLine() ?: break
+						if (line.isEmpty()) continue
+						// TSV: word1 \t word2 \t T9-sequence \t frequency
+						val parts = line.split('\t')
+						if (parts.size < 4) continue
+						val w1 = parts[0]
+						val w2 = parts[1]
+						val freq = parts[3].toIntOrNull() ?: continue
+						val list = map.getOrPut(w1) { ArrayList(4) }
+						list.add(w2 to freq)
 					}
 				}
 			}
 		} catch (e: Exception) {
-			Logger.w(LOG_TAG, "Failed to load bigram seed for $languageCode: $e")
+			Logger.w(LOG_TAG, "Failed to load bigram seed for $languageCode from $assetName: $e")
 			return emptyMap()
 		}
 		val elapsed = System.currentTimeMillis() - start
-		Logger.d(LOG_TAG, "Loaded ${map.size} pivot words for $languageCode in ${elapsed}ms.")
+		Logger.d(LOG_TAG, "Loaded ${map.size} pivot words for $languageCode from $assetName in ${elapsed}ms.")
 		return map
+	}
+
+	private fun assetExists(assets: android.content.res.AssetManager, path: String): Boolean {
+		return try {
+			assets.open(path).use { /* just existence check */ }
+			true
+		} catch (_: Exception) {
+			false
+		}
 	}
 }

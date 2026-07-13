@@ -87,6 +87,22 @@ public class SoftKeyShift extends BaseSoftKeyWithIcons {
 			return;
 		}
 
+		// On the QWERTY on-screen layout, hide the shift key entirely for languages without
+		// uppercase (Hebrew, Yiddish, Arabic, …). INVISIBLE preserves the wrapper's weight in
+		// Row 3 so the letters stay horizontally aligned with Row 2 above them; a Latin cycle
+		// restores VISIBLE. Skipped on the classic/small layouts because their shift key
+		// serves other functions (Korean space, etc.) that shouldn't be hidden.
+		if (tt9 != null && tt9.getSettings() != null && tt9.getLanguage() != null
+				&& tt9.getSettings().isMainLayoutQwerty()) {
+			final boolean hidden = !tt9.getLanguage().hasUpperCase();
+			final android.view.View parent = getParent() instanceof android.view.View ? (android.view.View) getParent() : null;
+			if (parent != null) {
+				parent.setVisibility(hidden ? INVISIBLE : VISIBLE);
+			} else {
+				setVisibility(hidden ? INVISIBLE : VISIBLE);
+			}
+		}
+
 		resetIconCache();
 		setEnabled(isShiftEnabled() || hasLettersOnAllKeys());
 		super.render();

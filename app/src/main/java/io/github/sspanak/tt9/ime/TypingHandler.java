@@ -28,6 +28,7 @@ import io.github.sspanak.tt9.ime.mindreader.MindReader;
 import io.github.sspanak.tt9.ime.modes.InputMode;
 import io.github.sspanak.tt9.ime.modes.InputModeKind;
 import io.github.sspanak.tt9.ime.swipe.Tt9WordProvider;
+import io.github.sspanak.tt9.languages.HebrewSofit;
 import io.github.sspanak.tt9.languages.Language;
 import io.github.sspanak.tt9.languages.LanguageCollection;
 import io.github.sspanak.tt9.languages.LanguageKind;
@@ -189,27 +190,7 @@ public abstract class TypingHandler extends KeyPadHandler {
 		((NaturalLanguage) mLanguage).updateKeyCharacters(settings);
 		resetKeyRepeat();
 		mInputMode = determineInputMode();
-		// Allocate a separate Predictive InputMode for the on-screen QWERTY pipeline. This
-		// stays Predictive regardless of what `mInputMode` is or what the user cycles into
-		// via #. If the input field doesn't support Predictive at all (password, dial pad,
-		// etc.), reuse `mInputMode` — the QWERTY path is gated by the layout anyway and
-		// won't fire on those field types.
-		if (allowedInputModes.contains(InputMode.MODE_PREDICTIVE)) {
-			qwertyInputMode = InputMode.getInstance(settings, mLanguage, inputType, textField, InputMode.MODE_PREDICTIVE)
-				// Mark this as the QWERTY-owned predictions instance so QWERTY-only ranking
-				// enhancements (bigram-context boost, seed injection) fire on its onDbWords.
-				// mInputMode's Predictions never gets this marker → T9 behavior unchanged.
-				.markAsQwertyPipeline();
-			// Warm the bigram seed for this language on a worker thread. The first
-			// prefix-completion query hits QwertyBigramSeed synchronously; kicking the load
-			// here keeps that first call sub-ms.
-			if (mLanguage != null && mLanguage.getCode() != null) {
-				final String langCode = mLanguage.getCode();
-				new Thread(() -> io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.ensureLoaded(getApplicationContext(), langCode), "tt9-bigram-seed-load").start();
-			}
-		} else {
-			qwertyInputMode = mInputMode;
-		}
+		refreshQwertyInputMode();
 		// `activeInputMode` defaults to whichever mode the user is initially using. If the
 		// active layout is QWERTY (on-screen visible), that's the QWERTY pipeline; otherwise
 		// the T9 pipeline. Updated dynamically by entry points (onQwertyLetter / onNumber)
@@ -227,6 +208,37 @@ public abstract class TypingHandler extends KeyPadHandler {
 			.setContext(mInputMode, mLanguage, surroundingText, null);
 
 		return super.onStart(field, restarting);
+	}
+
+
+	/**
+	 * (Re)create the QWERTY-side predictive InputMode. Called on onStart AND after a language
+	 * change (see CommandHandler.setLang) — the latter is required because `mLanguage` is
+	 * captured by reference into `WordPredictions` at construction, and cycling to Hebrew
+	 * would otherwise leave qwertyInputMode still querying the English dictionary.
+	 *
+	 * Kept as Predictive regardless of what `mInputMode` is or what the user cycles into via #.
+	 * If the input field doesn't support Predictive at all (password, dial pad, etc.), reuses
+	 * `mInputMode` — the QWERTY path is gated by the layout anyway and won't fire on those
+	 * field types.
+	 */
+	protected void refreshQwertyInputMode() {
+		if (allowedInputModes.contains(InputMode.MODE_PREDICTIVE)) {
+			qwertyInputMode = InputMode.getInstance(settings, mLanguage, inputType, textField, InputMode.MODE_PREDICTIVE)
+				// Mark this as the QWERTY-owned predictions instance so QWERTY-only ranking
+				// enhancements (bigram-context boost, seed injection) fire on its onDbWords.
+				// mInputMode's Predictions never gets this marker → T9 behavior unchanged.
+				.markAsQwertyPipeline();
+			// Warm the bigram seed for this language on a worker thread. The first
+			// prefix-completion query hits QwertyBigramSeed synchronously; kicking the load
+			// here keeps that first call sub-ms.
+			if (mLanguage != null && mLanguage.getCode() != null) {
+				final String langCode = mLanguage.getCode();
+				new Thread(() -> io.github.sspanak.tt9.ime.qwerty.QwertyBigramSeed.ensureLoaded(getApplicationContext(), langCode), "tt9-bigram-seed-load").start();
+			}
+		} else {
+			qwertyInputMode = mInputMode;
+		}
 	}
 
 
@@ -844,8 +856,29 @@ public abstract class TypingHandler extends KeyPadHandler {
 
 		String[] surroundingChars;
 
+		// Hebrew / Yiddish sofit auto-conversion: whatever the user typed as a trailing
+		// non-final letter (מ/נ/פ/צ/כ) becomes its sofit variant (ם/ן/ף/ץ/ך) at word commit.
+		// Hebrew orthography makes this unambiguous — the sofit is required at word end. Applied
+		// BEFORE acceptIncomplete() so finishComposingText() flushes the corrected composing text.
+		if (HebrewSofit.appliesTo(mLanguage)) {
+			final String composingBefore = textField.getComposingText();
+			if (composingBefore != null && !composingBefore.isEmpty()) {
+				final String converted = HebrewSofit.applyFinalForm(composingBefore);
+				if (!converted.equals(composingBefore)) {
+					appHacks.setComposingText(converted);
+				}
+			}
+		}
+
 		// accept the previously typed word (if any)
 		String lastWord = suggestionOps.acceptIncomplete();
+		// Match the string committed to the text field: the sofit hook above rewrote the
+		// composing region, so `lastWord` (which acceptIncomplete captured before the rewrite)
+		// still has the regular form. Aligning here keeps mindReader / onAcceptSuggestion /
+		// autoCorrectSpace / Tt9WordProvider learning against the actual on-screen text.
+		if (HebrewSofit.appliesTo(mLanguage)) {
+			lastWord = HebrewSofit.applyFinalForm(lastWord);
+		}
 		if (lastWord.isEmpty()) {
 			surroundingChars = textField.getSurroundingStringForAutoAssistance(settings, mInputMode);
 		} else {

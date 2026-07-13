@@ -116,14 +116,15 @@ class SettingsTyping extends SettingsMindReading {
 		// On the QWERTY on-screen layout, suggestions are ALWAYS on — the QWERTY pipeline
 		// uses its own qwertyInputMode which is always Predictive, independent of whatever
 		// `getInputMode()` (mInputMode / T9-side) is currently cycled to. Without this gate,
-		// pressing # to cycle T9 into ABC would silently hide the QWERTY strip. We check the
-		// layout preference directly (inlined here because isMainLayoutQwerty lives on the
-		// SettingsUI subclass, not accessible from this base).
-		final int currentLayout = getStringifiedInt(
-			io.github.sspanak.tt9.preferences.screens.appearance.DropDownLayoutType.NAME,
-			-1
-		);
-		if (currentLayout == SettingsUI.LAYOUT_QWERTY) {
+		// pressing # to cycle T9 into ABC would silently hide the QWERTY strip.
+		//
+		// Delegate to SettingsUI.isMainLayoutQwerty (runtime virtual dispatch — every real
+		// `settings` instance is a `SettingsStore` which extends `SettingsUI`). Using its
+		// helper is important because it applies the device-appropriate DEFAULT_LAYOUT when
+		// the pref isn't set yet; a direct getStringifiedInt(NAME, -1) here would fall
+		// through to the ABC-gated branch on fresh-install / cleared-data cases and hide
+		// the strip.
+		if (this instanceof SettingsUI && ((SettingsUI) this).isMainLayoutQwerty()) {
 			return true;
 		}
 		final int inputMode = getInputMode();

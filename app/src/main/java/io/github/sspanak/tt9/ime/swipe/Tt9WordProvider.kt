@@ -399,11 +399,19 @@ class Tt9WordProvider private constructor() : WordProvider {
 			val provider = synchronized(cache) { cache[languageId] } ?: return out
 			if (!provider.isLoaded) return out
 			val lowered = prefix.lowercase()
+			// Hebrew/Yiddish sofit ↔ regular equivalence: the user types "שלומ" (regular mem)
+			// but the dictionary stores "שלום" (sofit mem). Normalizing both sides to the
+			// regular form makes the prefix match. For non-Hebrew languages both calls
+			// short-circuit at HebrewSofit and return the input reference — zero overhead.
+			val loweredNormalized = io.github.sspanak.tt9.languages.HebrewSofit.normalizeToRegular(lowered)
 
 			val matches = java.util.ArrayList<Pair<String, Float>>()
 			for (w in provider.words) {
-				if (w.length > lowered.length && w.startsWith(lowered)) {
-					matches.add(w to (provider.freqByWord[w] ?: 0f))
+				if (w.length > lowered.length) {
+					val normalizedW = io.github.sspanak.tt9.languages.HebrewSofit.normalizeToRegular(w)
+					if (normalizedW.startsWith(loweredNormalized)) {
+						matches.add(w to (provider.freqByWord[w] ?: 0f))
+					}
 				}
 			}
 			matches.sortByDescending { it.second }
