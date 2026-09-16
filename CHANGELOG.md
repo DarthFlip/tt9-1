@@ -13,6 +13,11 @@ repo is `v61.0` — the 62.x builds distributed to MegaLife devices were never t
 ## [Unreleased]
 
 ### Fixed
+- Key presses are no longer swallowed when the dictionary fails to import. A failed
+  import used to clear its own 20-minute retry cooldown, so every subsequent key
+  press started another doomed import and was consumed by it instead of typing a
+  digit — the keyboard showed "Please wait for the dictionary to load" indefinitely
+  and accepted no input at all. Failed imports now respect the cooldown.
 - The dictionary loads again after installing a build whose version code is lower
   than the one already on the phone. The database schema version is the app's
   version code, which is derived from the branch's commit count and so is not

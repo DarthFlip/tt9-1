@@ -8,7 +8,6 @@ import androidx.annotation.Nullable;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -247,11 +246,16 @@ public class DictionaryLoader {
 			sqlite.failTransaction();
 			loadingBar.showError(e.getClass().getSimpleName(), language, -1);
 
-			if (e instanceof UnknownHostException) {
-				lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
-			} else {
-				lastAutoLoadAttemptTime.put(language.getId(), null);
-			}
+			// Record the attempt for EVERY failure, so the auto-load cooldown actually applies.
+			// Clearing it (the old "else" branch) meant any non-network failure re-armed autoLoad
+			// immediately: TraditionalT9.onNumber calls autoLoad on each key press and returns
+			// true when it starts a load, so the key press is swallowed instead of typed. A
+			// permanently failing import therefore ate every single keystroke and left the
+			// "Please wait for the dictionary to load" toast on screen forever — reported from
+			// the field as "pressing a physical key ... says wait for dictionary to load instead
+			// of inputting a number". A failure that repeats needs a back-off more than a
+			// transient one does.
+			lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
 
 			Logger.e(
 				LOG_TAG,
