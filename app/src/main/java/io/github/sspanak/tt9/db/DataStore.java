@@ -143,12 +143,13 @@ public class DataStore {
 
 
 	/**
-	 * Asynchronously delivers every factory-dictionary word (word + frequency) for the language.
-	 * Callback fires on the DataStore executor thread — post back to the main thread before touching
-	 * UI-facing state.
+	 * Asynchronously delivers the [maxWords] most frequent factory-dictionary words (word +
+	 * frequency) for the language. Callback fires on the DataStore executor thread — post back to
+	 * the main thread before touching UI-facing state.
+	 * Pass maxWords <= 0 for no limit (beware: large dictionaries will exhaust the heap).
 	 */
-	public static void getAllWords(Consumer<WordList> dataHandler, Language language) {
-		runInThread(() -> dataHandler.accept(words.getAllWords(language)));
+	public static void getAllWords(Consumer<WordList> dataHandler, Language language, int maxWords) {
+		runInThread(() -> dataHandler.accept(words.getAllWords(language, maxWords)));
 	}
 
 

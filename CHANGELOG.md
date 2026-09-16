@@ -24,6 +24,13 @@ repo is `v61.0` — the 62.x builds distributed to MegaLife devices were never t
   always increasing; SQLite refused to open the database at all, every dictionary
   import failed with "Can't downgrade database from version 1700 to 1665", and the
   keyboard offered no words. Existing custom words and learned frequencies are kept.
+- The keyboard no longer runs out of memory and crashes on Hebrew. The vocabulary
+  used for glide typing and typo correction is now capped at the 200,000 most
+  frequent words per language instead of loading entire dictionaries into memory.
+  Hebrew ships about 1.5 million words, and with English and Yiddish also resident
+  that filled the whole 256 MB heap available to the keyboard — so users hit
+  `OutOfMemoryError`, frozen input and "keyboard is not responding" dialogs. English
+  and Yiddish are unaffected by the cap; both are smaller than it.
 
 ### Added
 - Release builds are platform-signed against the MegaLife shared platform key.

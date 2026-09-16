@@ -170,14 +170,25 @@ public class ReadOps {
 
 
 	/**
-	 * Streams every factory-dictionary word + frequency for the given language. Used by callers
-	 * that need the entire vocabulary without a digit-sequence filter (e.g. the glide-typing
-	 * classifier). Returns an empty list if the language has no words table yet (import pending).
+	 * Streams the [maxWords] most frequent factory-dictionary words + frequencies for the given
+	 * language. Used by callers that need the vocabulary without a digit-sequence filter (e.g. the
+	 * glide-typing classifier). Returns an empty list if the language has no words table yet
+	 * (import pending).
+	 *
+	 * The cap is applied in SQL rather than by the caller because an uncapped read materialises
+	 * every row into the WordList before anything can trim it. Hebrew ships ~2.1M words; on the
+	 * 256 MB heap of a Schok F1 that alone exhausted the heap and the IME died with OOM before
+	 * the user typed anything. Ordering by frequency keeps the words that actually matter —
+	 * consumers already discard the long tail (see Tt9WordProvider / VOCAB_CAP).
+	 *
+	 * Pass maxWords <= 0 for no limit.
 	 */
 	@NonNull
-	public WordList getAllWords(@NonNull SQLiteDatabase db, @NonNull Language language) {
+	public WordList getAllWords(@NonNull SQLiteDatabase db, @NonNull Language language, int maxWords) {
 		WordList words = new WordList();
-		try (Cursor cursor = db.query(Tables.getWords(language.getId()), new String[]{"word", "frequency"}, null, null, null, null, null)) {
+		String orderBy = maxWords > 0 ? "frequency DESC" : null;
+		String limit = maxWords > 0 ? String.valueOf(maxWords) : null;
+		try (Cursor cursor = db.query(Tables.getWords(language.getId()), new String[]{"word", "frequency"}, null, null, null, null, orderBy, limit)) {
 			words.ensureCapacity(cursor.getCount());
 			while (cursor.moveToNext()) {
 				words.add(cursor.getString(0), cursor.getInt(1), 0);

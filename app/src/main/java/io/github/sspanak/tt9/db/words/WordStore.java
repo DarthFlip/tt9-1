@@ -122,16 +122,17 @@ public class WordStore extends BaseSyncStore {
 
 
 	/**
-	 * Returns every factory-dictionary word (word + frequency) for the given language. Intended
-	 * for consumers that need the full vocabulary without a digit-sequence filter — e.g. the
-	 * glide-typing classifier. Safe to call on a worker thread.
+	 * Returns the [maxWords] most frequent factory-dictionary words (word + frequency) for the
+	 * given language. Intended for consumers that need the vocabulary without a digit-sequence
+	 * filter — e.g. the glide-typing classifier. Safe to call on a worker thread.
+	 * Pass maxWords <= 0 for no limit (beware: large dictionaries will exhaust the heap).
 	 */
 	@NonNull
-	public WordList getAllWords(Language language) {
+	public WordList getAllWords(Language language, int maxWords) {
 		if (language == null || language instanceof NullLanguage || !checkOrNotify()) {
 			return new WordList();
 		}
-		return readOps.getAllWords(sqlite.getDb(), language);
+		return readOps.getAllWords(sqlite.getDb(), language, maxWords);
 	}
 
 

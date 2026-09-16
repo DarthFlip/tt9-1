@@ -65,6 +65,25 @@ class Tt9WordProvider private constructor() : WordProvider {
 		// everything the user has taught the keyboard. We store one TSV-encoded string per map
 		// per language in a dedicated SharedPreferences file, written async via apply() and
 		// debounced so a burst of acceptances doesn't hammer the disk.
+		/**
+		 * Hard ceiling on how many words a provider keeps resident, most frequent first.
+		 *
+		 * Every retained word costs roughly four objects (the String plus its byte[], the
+		 * freqByWord HashMap$Node, and the boxed Float) and ~120 bytes.
+		 *
+		 * Measured word counts in the bundled dictionaries: en 173,889 · he 1,510,377 ·
+		 * ji 138,439 — about 1.82M words with all three resident. Uncapped that is ~7.3M
+		 * objects and ~220 MB, against a 256 MB heap on a Schok F1, which is why 62.1 died
+		 * with OutOfMemoryError. (A firmware boot-warm-up log independently reports "173916
+		 * words imported" for English, matching the count above, so these numbers are real.)
+		 *
+		 * 200k is ~24 MB, keeps English whole — 150k would have clipped it — and is far past
+		 * the 40k the glide classifier trims to anyway
+		 * (StatisticalGlideTypingClassifier.VOCAB_CAP). Hebrew is necessarily cut to its most
+		 * frequent 200k; that is the deliberate trade.
+		 */
+		private const val MAX_VOCABULARY_WORDS = 200_000
+
 		private const val PREFS_NAME = "tt9_word_provider_learning"
 		private const val PREFIX_BOOST = "lang_%d_boost"
 		private const val PREFIX_PENALTY = "lang_%d_penalty"
@@ -382,12 +401,12 @@ class Tt9WordProvider private constructor() : WordProvider {
 
 		/**
 		 * Returns up to [maxResults] vocabulary words starting with [prefix] (lowercase), sorted
-		 * by descending frequency. DataStore.getAllWords returns words in dictionary insertion
-		 * order (typically by digit-sequence id then by frequency-within-sequence), so a naive
-		 * "first N matches" scan would surface arbitrary low-frequency words like "thy / thx"
-		 * before the obvious completions "the / this / they / them". Doing a full O(n) scan +
-		 * sort over the cached vocabulary is sub-millisecond at 50k words and ensures the most
-		 * common completions surface first.
+		 * by descending frequency. The cached vocabulary is loaded frequency-ordered and capped
+		 * at MAX_VOCABULARY_WORDS, but it is stored as a flat list, so a naive "first N matches"
+		 * scan would still surface whichever matches happen to come first rather than the most
+		 * common completions ("thy / thx" before "the / this / they / them"). Doing a full O(n)
+		 * scan + sort over the cached vocabulary is sub-millisecond at this size and guarantees
+		 * the most common completions surface first.
 		 *
 		 * Empty list if the provider for [languageId] isn't loaded yet. Used by WordPredictions
 		 * to supplement the SQLite digit-sequence query on QWERTY-typed prefixes.
@@ -487,7 +506,7 @@ class Tt9WordProvider private constructor() : WordProvider {
 					maybeApplyDecay(it, langId, provider)
 				}
 				onReady(provider)
-			}, language)
+			}, language, MAX_VOCABULARY_WORDS)
 		}
 	}
 }
