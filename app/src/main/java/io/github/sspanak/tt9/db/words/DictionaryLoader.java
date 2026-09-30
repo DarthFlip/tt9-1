@@ -48,7 +48,6 @@ public class DictionaryLoader {
 	// written from the main thread, the hash check thread and the loading thread; never store null values
 	@NonNull private static final ConcurrentHashMap<Integer, Long> lastAutoLoadAttemptTime = new ConcurrentHashMap<>();
 	@NonNull private static final ConcurrentHashMap<Integer, Integer> autoLoadFailures = new ConcurrentHashMap<>();
-	private static final int AUTO_LOAD_MAX_FAILURES = 5;
 	private static final long AUTO_LOAD_MAX_COOLDOWN_TIME = 24 * 60 * 60 * 1000L; // 24 hours in ms
 	private static boolean skipNextAutoLoad = false;
 	private int currentFile = 0;
@@ -144,10 +143,6 @@ public class DictionaryLoader {
 		}
 
 		final Integer failures = autoLoadFailures.get(language.getId());
-		if (failures != null && failures >= AUTO_LOAD_MAX_FAILURES) {
-			return false;
-		}
-
 		final Long lastUpdateTime = lastAutoLoadAttemptTime.get(language.getId());
 		final boolean isItTooSoon = lastUpdateTime != null && System.currentTimeMillis() - lastUpdateTime < getAutoLoadCooldownTime(failures);
 		if (isItTooSoon) {
@@ -296,7 +291,8 @@ public class DictionaryLoader {
 		} catch (DictionaryImportAbortedException e) {
 			sqlite.failTransaction();
 			stop();
-			onLoadingFailed(language);
+			// cancelled by the user: not a failure, but still wait before trying automatically again
+			lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
 			Logger.i(LOG_TAG, e.getMessage() + ". File '" + language.getDictionaryFile() + "' not imported.");
 		} catch (DictionaryImportException e) {
 			stop();
