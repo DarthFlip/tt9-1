@@ -8,7 +8,6 @@ import androidx.annotation.Nullable;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -47,6 +46,9 @@ public class DictionaryLoader {
 	@Nullable private Thread loadThread;
 
 	@NonNull private static final HashMap<Integer, Long> lastAutoLoadAttemptTime = new HashMap<>();
+	@NonNull private static final HashMap<Integer, Integer> autoLoadFailures = new HashMap<>();
+	private static final int AUTO_LOAD_MAX_FAILURES = 5;
+	private static final long AUTO_LOAD_MAX_COOLDOWN_TIME = 24 * 60 * 60 * 1000L; // 24 hours in ms
 	private static boolean skipNextAutoLoad = false;
 	private int currentFile = 0;
 
@@ -65,7 +67,29 @@ public class DictionaryLoader {
 	}
 
 
+	/**
+	 * Manual loading (e.g. from the Settings). Clears the automatic loading backoff of the given
+	 * languages, so that a successful (or a new failed) attempt starts counting from scratch.
+	 */
 	public static boolean load(@NonNull Context context, @NonNull SettingsStore settings, @Nullable ArrayList<Language> languages) {
+		if (isRunning()) {
+			return false;
+		}
+
+		if (languages != null) {
+			for (Language language : languages) {
+				if (language != null) {
+					autoLoadFailures.remove(language.getId());
+					lastAutoLoadAttemptTime.remove(language.getId());
+				}
+			}
+		}
+
+		return startLoading(context, settings, languages);
+	}
+
+
+	private static boolean startLoading(@NonNull Context context, @NonNull SettingsStore settings, @Nullable ArrayList<Language> languages) {
 		if (isRunning()) {
 			return false;
 		}
@@ -109,8 +133,13 @@ public class DictionaryLoader {
 			return false;
 		}
 
+		final Integer failures = autoLoadFailures.get(language.getId());
+		if (failures != null && failures >= AUTO_LOAD_MAX_FAILURES) {
+			return false;
+		}
+
 		final Long lastUpdateTime = lastAutoLoadAttemptTime.get(language.getId());
-		final boolean isItTooSoon = lastUpdateTime != null && System.currentTimeMillis() - lastUpdateTime < SettingsStore.DICTIONARY_AUTO_LOAD_COOLDOWN_TIME;
+		final boolean isItTooSoon = lastUpdateTime != null && System.currentTimeMillis() - lastUpdateTime < getAutoLoadCooldownTime(failures);
 		if (isItTooSoon) {
 			return false;
 		}
@@ -124,7 +153,9 @@ public class DictionaryLoader {
 				final boolean noNotifications = DeviceInfo.AT_LEAST_ANDROID_13;
 
 				if (noDictionary || (isDictionaryOutdated && noNotifications)) {
-					load(context, settings, language);
+					ArrayList<Language> languages = new ArrayList<>(1);
+					languages.add(language);
+					startLoading(context, settings, languages);
 				} else if (isDictionaryOutdated) {
 					new DictionaryUpdateNotification(context, language).show();
 				}
@@ -133,6 +164,30 @@ public class DictionaryLoader {
 		);
 
 		return true;
+	}
+
+
+	/**
+	 * 20 minutes after a success or the first failure, then doubling with every consecutive failure,
+	 * up to 24 hours.
+	 */
+	private static long getAutoLoadCooldownTime(@Nullable Integer failures) {
+		long cooldown = SettingsStore.DICTIONARY_AUTO_LOAD_COOLDOWN_TIME;
+		for (int i = 1; failures != null && i < failures && cooldown < AUTO_LOAD_MAX_COOLDOWN_TIME; i++) {
+			cooldown *= 2;
+		}
+		return Math.min(cooldown, AUTO_LOAD_MAX_COOLDOWN_TIME);
+	}
+
+
+	/**
+	 * Keeps the cooldown running after a failure, instead of resetting it, so that a broken
+	 * dictionary is not re-imported on every key press.
+	 */
+	private static void onLoadingFailed(@NonNull Language language) {
+		final Integer failures = autoLoadFailures.get(language.getId());
+		autoLoadFailures.put(language.getId(), failures == null ? 1 : failures + 1);
+		lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
 	}
 
 
@@ -225,15 +280,16 @@ public class DictionaryLoader {
 
 			sqlite.finishTransaction();
 			SlowQueryStats.clear();
+			autoLoadFailures.remove(language.getId());
 		} catch (DictionaryImportAbortedException e) {
 			sqlite.failTransaction();
 			stop();
-			lastAutoLoadAttemptTime.put(language.getId(), null);
+			onLoadingFailed(language);
 			Logger.i(LOG_TAG, e.getMessage() + ". File '" + language.getDictionaryFile() + "' not imported.");
 		} catch (DictionaryImportException e) {
 			stop();
 			sqlite.failTransaction();
-			lastAutoLoadAttemptTime.put(language.getId(), null);
+			onLoadingFailed(language);
 			loadingBar.showError(DictionaryImportException.class.getSimpleName(), language, e.line);
 
 			Logger.e(
@@ -247,11 +303,7 @@ public class DictionaryLoader {
 			sqlite.failTransaction();
 			loadingBar.showError(e.getClass().getSimpleName(), language, -1);
 
-			if (e instanceof UnknownHostException) {
-				lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
-			} else {
-				lastAutoLoadAttemptTime.put(language.getId(), null);
-			}
+			onLoadingFailed(language);
 
 			Logger.e(
 				LOG_TAG,

@@ -319,8 +319,9 @@ public class TraditionalT9 extends PremiumHandler {
 
 	@Override
 	protected boolean onNumber(int key, boolean hold, int repeat) {
-		if (InputModeKind.isPredictive(mInputMode) && DictionaryLoader.autoLoad(this, settings, mLanguage)) {
-			return true;
+		// A background dictionary check or import must never swallow the key press.
+		if (InputModeKind.isPredictive(mInputMode)) {
+			DictionaryLoader.autoLoad(this, settings, mLanguage);
 		}
 		return super.onNumber(key, hold, repeat);
 	}
