@@ -9,8 +9,8 @@ import androidx.annotation.Nullable;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.sspanak.tt9.db.DataStore;
 import io.github.sspanak.tt9.db.entities.WordBatch;
@@ -36,17 +36,18 @@ import io.github.sspanak.tt9.util.sys.DeviceInfo;
 
 public class DictionaryLoader {
 	private static final String LOG_TAG = "DictionaryLoader";
-	@Nullable private static DictionaryLoader self;
+	@Nullable private static volatile DictionaryLoader self;
 	private static final String IMPORT_TIMER = "importTime";
 
 	@NonNull private final SQLiteOpener sqlite;
 	@NonNull private final InsertOps insertOps = new InsertOps();
 
 	@NonNull private final DictionaryLoadingBar loadingBar;
-	@Nullable private Thread loadThread;
+	@Nullable private volatile Thread loadThread;
 
-	@NonNull private static final HashMap<Integer, Long> lastAutoLoadAttemptTime = new HashMap<>();
-	@NonNull private static final HashMap<Integer, Integer> autoLoadFailures = new HashMap<>();
+	// written from the main thread, the hash check thread and the loading thread; never store null values
+	@NonNull private static final ConcurrentHashMap<Integer, Long> lastAutoLoadAttemptTime = new ConcurrentHashMap<>();
+	@NonNull private static final ConcurrentHashMap<Integer, Integer> autoLoadFailures = new ConcurrentHashMap<>();
 	private static final int AUTO_LOAD_MAX_FAILURES = 5;
 	private static final long AUTO_LOAD_MAX_COOLDOWN_TIME = 24 * 60 * 60 * 1000L; // 24 hours in ms
 	private static boolean skipNextAutoLoad = false;
@@ -60,9 +61,10 @@ public class DictionaryLoader {
 
 
 	public static void abort() {
-		if (self != null) {
-			self.stop();
-			self.loadingBar.showCancelled();
+		final DictionaryLoader loader = self;
+		if (loader != null) {
+			loader.stop();
+			loader.loadingBar.showCancelled();
 		}
 	}
 
@@ -89,7 +91,7 @@ public class DictionaryLoader {
 	}
 
 
-	private static boolean startLoading(@NonNull Context context, @NonNull SettingsStore settings, @Nullable ArrayList<Language> languages) {
+	private static synchronized boolean startLoading(@NonNull Context context, @NonNull SettingsStore settings, @Nullable ArrayList<Language> languages) {
 		if (isRunning()) {
 			return false;
 		}
@@ -102,17 +104,25 @@ public class DictionaryLoader {
 		if (self == null) {
 			self = new DictionaryLoader(context);
 		}
-		self.loadThread = new Thread(() -> {
+		final DictionaryLoader loader = self;
+		loader.loadThread = new Thread(() -> {
 			try {
-				self.loadSync(context, settings, languages);
+				loader.loadSync(context, settings, languages);
 			} finally {
-				self.loadThread = null;
-				self = null;
+				onLoadingThreadFinished(loader);
 			}
 		});
-		self.loadThread.start();
+		loader.loadThread.start();
 
 		return true;
+	}
+
+
+	private static synchronized void onLoadingThreadFinished(@NonNull DictionaryLoader loader) {
+		loader.loadThread = null;
+		if (self == loader) {
+			self = null;
+		}
 	}
 
 
@@ -144,10 +154,11 @@ public class DictionaryLoader {
 			return false;
 		}
 
+		// Set before the asynchronous check, so that the key presses that follow do not start more checks.
+		lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
+
 		DataStore.getLastLanguageUpdateTime(
 			(hash) -> {
-				lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
-
 				final boolean noDictionary = hash == null || hash.isEmpty();
 				final boolean isDictionaryOutdated = noDictionary || !hash.equals(new WordFile(context, language, context.getAssets()).getHash());
 				final boolean noNotifications = DeviceInfo.AT_LEAST_ANDROID_13;
@@ -185,8 +196,7 @@ public class DictionaryLoader {
 	 * dictionary is not re-imported on every key press.
 	 */
 	private static void onLoadingFailed(@NonNull Language language) {
-		final Integer failures = autoLoadFailures.get(language.getId());
-		autoLoadFailures.put(language.getId(), failures == null ? 1 : failures + 1);
+		autoLoadFailures.merge(language.getId(), 1, Integer::sum);
 		lastAutoLoadAttemptTime.put(language.getId(), System.currentTimeMillis());
 	}
 
@@ -197,15 +207,17 @@ public class DictionaryLoader {
 
 
 	private void stop() {
-		if (loadThread != null) {
-			loadThread.interrupt();
+		final Thread thread = loadThread;
+		if (thread != null) {
+			thread.interrupt();
 		}
 		Timer.stop(IMPORT_TIMER);
 	}
 
 
-	public static boolean isRunning() {
-		return self != null && self.loadThread != null && self.loadThread.isAlive();
+	public static synchronized boolean isRunning() {
+		final Thread thread = self != null ? self.loadThread : null;
+		return thread != null && thread.isAlive();
 	}
 
 
